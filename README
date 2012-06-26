@@ -1,0 +1,18 @@
+zab protocol in erlang and use like gen_server
+
+use leveldb as log
+
+
+use:
+  
+   implements gen_zab_server callbacks
+
+   look zabe_learn_leveldb.erl
+
+
+todo:
+
+  recover
+
+  backup
+
