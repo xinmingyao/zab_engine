@@ -1,0 +1,12 @@
+{application, zab_engine,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { zab_engine_app, []}},
+  {env, []}
+ ]}.
