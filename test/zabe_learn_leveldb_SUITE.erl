@@ -13,7 +13,7 @@ init_per_suite(Config)->
 
 
 
-setup() ->
+setup(Dir) ->
 %    error_logger:tty(false),
     application:load(lager), 
     application:set_env(lager, handlers, [{lager_console_backend, info}
@@ -22,8 +22,12 @@ setup() ->
     application:set_env(lager, error_logger_redirect, false),
     application:start(compiler),
     application:start(syntax_tools),
-    application:start(lager)
-    .
+    application:start(lager),
+    os:cmd("rm -rf "++Dir),
+    timer:sleep(2),
+    zabe_proposal_leveldb_backend:start_link(Dir),
+ ok   
+.
 
 cleanup(_) ->
     application:stop(lager),
@@ -33,13 +37,19 @@ end_per_suite(Config)->
 
     Config.
 
-init_per_testcase(_,Config)->
 
-    Config
+init_per_testcase(_TestCase, Config) ->
+    os:cmd("rm -rf /tmp/proposal.bb"),
+    timer:sleep(2),
+    {ok,Pid}=zabe_proposal_leveldb_backend:start_link("/tmp/proposal.bb"),
+    [{pid,Pid}|Config]
+
+
     .
 
-end_per_testcase(Config)->
-
+end_per_testcase(_TestCase, Config) ->
+    Pid=?config(pid,Config),
+    erlang:exit(Pid,normal),        
     ok.
 
 -define(HOST,'localhost').
@@ -68,9 +78,9 @@ elect(Config)-> D1="/tmp/1.db",
 			    " -pa "++A++ Acc end, " ",Ps),
     slave:start(?HOST,n1,Arg),
     slave:start(?HOST,n2,Arg),
-    setup(),
-    ok=rpc:call('n1@localhost',zabe_learn_leveldb_SUITE,setup,[]),
-    ok=rpc:call('n2@localhost',zabe_learn_leveldb_SUITE,setup,[]),
+    setup("/tmp/p1.db"),
+    ok=rpc:call('n1@localhost',zabe_learn_leveldb_SUITE,setup,["/tmp/p2.db"]),
+    ok=rpc:call('n2@localhost',zabe_learn_leveldb_SUITE,setup,["/tmp/p3.db"]),
     timer:sleep(800),
     {ok,_}=zabe_learn_leveldb:start_link(Nodes,Op1,D1),    
     

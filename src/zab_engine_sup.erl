@@ -23,6 +23,24 @@ start_link() ->
 %% Supervisor callbacks
 %% ===================================================================
 
+
 init([]) ->
-    {ok, { {one_for_one, 5, 10}, []} }.
+    
+    {ok,ProposalDir}=zab_engine_util:get_env(proposal_log_dir,"/tmp/proposal"),
+
+    ProposalBackEnd = {proposal_backend,
+		    {zabe_proposal_leveldb_backend, start_link,
+		     [ProposalDir]},
+		       permanent, 5000, worker, [redis_back_end]},
+    
+
+    
+    % Build the process list...
+    Processes = lists:flatten([
+			       ProposalBackEnd
+			       
+    ]),    
+    % Run the proesses...
+    {ok, {{one_for_one, 10, 10}, Processes}}.
+
 

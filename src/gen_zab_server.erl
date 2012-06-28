@@ -237,7 +237,7 @@ init_it(Starter,Parent,Name,Mod,{CandidateNodes,OptArgs,Arg},Options) ->
     ElectMod        = proplists:get_value(elect_mod,      OptArgs,zabe_fast_elect),
     ProposalLogMod        = proplists:get_value(proposal_log_mod,      OptArgs,zabe_proposal_leveldb_backend),
     Debug       = debug_options(Name, Options),
-    ProposalDir =proplists:get_value(proposal_dir,OptArgs,"/tmp/p1.ldb"),
+%    ProposalDir =proplists:get_value(proposal_dir,OptArgs,"/tmp/p1.ldb"),
      case Mod:init(Arg)  of
         {stop, Reason} ->
             proc_lib:init_ack(Starter, {error, Reason}),
@@ -249,14 +249,6 @@ init_it(Starter,Parent,Name,Mod,{CandidateNodes,OptArgs,Arg},Options) ->
             proc_lib:init_ack(Starter, {error, Reason}),
             exit(Reason);
         {ok, State,LastCommitZxid} ->
-	     
-	     case whereis(ProposalLogMod) of
-		 undefined->
-	
-		     ProposalLogMod:start(ProposalDir);
-		 _ ->ok
-	     end,
-	     
 	     proc_lib:init_ack(Starter, {ok, self()}),
 	     Ensemble=CandidateNodes,
 	     Quorum=ordsets:size(Ensemble) div  2  +1,

@@ -31,7 +31,8 @@
 		ntimeout,
 		recv_votes::ets,
 		outof_election::ets,
-		wait_outof_timer::reference()
+		wait_outof_timer::reference(),
+		vote_timer::reference()
 }).
 
 
@@ -83,7 +84,9 @@ init([#election{parent=ManagerName,last_zxid=LastZxid,ensemble=Ensemble,quorum=Q
     V=#vote{from=node(),leader=node(),zxid=LastZxid,
 	    last_commit_zxid=LastCommitZxid,
 	    epoch=LogicalLock,state=?LOOKING},
+    
     send_notifications(V,Ensemble,ManagerName),
+    {ok,TimeRef}=timer:apply_interval(3000,?MODULE,send_notifications,[V,Ensemble,ManagerName]),
     Recv=ets:new(list_to_atom(atom_to_list(ManagerName)++"_1"),[{keypos,2}]),
     OutOf=ets:new(list_to_atom(atom_to_list(ManagerName)++"_2"),[{keypos,2}]),
     put(?PROPOSED,V),
@@ -92,7 +95,8 @@ init([#election{parent=ManagerName,last_zxid=LastZxid,ensemble=Ensemble,quorum=Q
 	   ensemble=Ensemble,
 	   quorum=Quorum,
 	   recv_votes=Recv,
-	   outof_election=OutOf
+	   outof_election=OutOf,
+	   vote_timer=TimeRef
 	  }}.
 
 %%--------------------------------------------------------------------
@@ -129,7 +133,7 @@ looking(_Event, State) ->
    {next_state, looking, State}.
 
 
-looking1(Vote=#vote{from=_From,leader=Leader,state=PeerState,epoch=PeerEpoch}, State=#state{manager_name=ManagerName,ensemble=Ensemble}) ->
+looking1(Vote=#vote{from=_From,leader=Leader,state=PeerState,epoch=PeerEpoch}, State=#state{manager_name=ManagerName,ensemble=Ensemble,vote_timer=VoteTimer}) ->
 
     P1=get(?PROPOSED),
     Epoch=P1#vote.epoch,  
@@ -175,6 +179,7 @@ looking1(Vote=#vote{from=_From,leader=Leader,state=PeerState,epoch=PeerEpoch}, S
 	    ReceiveAll=ets:info(RecvVote,size) == ordsets:size(Ensemble),
 	    HaveQuorm=is_have_quorm(State#state.quorum,Vote,RecvVote),
 	    if ReceiveAll ->
+		    timer:cancel(VoteTimer),
 		    notify_manager(ManagerName,ets:tab2list(RecvVote)),
 		    throw(finish);
 	       HaveQuorm->
@@ -194,6 +199,7 @@ looking1(Vote=#vote{from=_From,leader=Leader,state=PeerState,epoch=PeerEpoch}, S
 		    HaveQuorm=is_have_quorm(State#state.quorum,Vote,R2),
 		    CheckLeader=check_leader(R2,Vote#vote.leader,node()),
 		    if Vote#vote.state ==?LEADING andalso CheckLeader andalso HaveQuorm->
+			    timer:cancel(VoteTimer),
 			    notify_manager(ManagerName,ets:tab2list(State#state.recv_votes)),
 			    throw(finish);
 		       true ->
@@ -207,6 +213,7 @@ looking1(Vote=#vote{from=_From,leader=Leader,state=PeerState,epoch=PeerEpoch}, S
 		    if HaveQuorm andalso CheckLeader->
 			    V1=P1#vote{epoch=PeerEpoch},
 			    put(?PROPOSED,V1),
+			    timer:cancel(VoteTimer),
 			    notify_manager(ManagerName,ets:tab2list(State#state.recv_votes)),
 			    ets:delete_all_objects(State#state.recv_votes),%??
 			    throw(finish)
@@ -219,7 +226,8 @@ looking1(Vote=#vote{from=_From,leader=Leader,state=PeerState,epoch=PeerEpoch}, S
     end
     .
 
-wait_outof_election({timeout,_,wait_timeout},State=#state{manager_name=M})->
+wait_outof_election({timeout,_,wait_timeout},State=#state{manager_name=M,vote_timer=VoteTimer})->
+    timer:cancel(VoteTimer),
     notify_manager(M,ets:tab2list(State#state.recv_votes)),
    {stop,normal, State};
 wait_outof_election(Vote=#vote{leader=_Leader,state=?LOOKING},State) ->
