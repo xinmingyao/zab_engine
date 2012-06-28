@@ -744,7 +744,7 @@ format_status(Opt, StatusData) ->
 %%-----------------------------------------------------------------
 
 send_zab_msg(To,Msg)->
-    erlang:send(To,#msg{cmd=?ZAB_CMD,value=Msg}).
+    catch erlang:send(To,#msg{cmd=?ZAB_CMD,value=Msg}).
 
 
 

@@ -17,7 +17,7 @@
 	 handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
  
 
--export([wait_outof_election/2]).
+-export([wait_outof_election/2,send_notifications/3]).
 -compile([{parse_transform, lager_transform}]).
  
 -include("zabe_main.hrl").
@@ -368,7 +368,7 @@ send_notifications(V=#vote{},Ensemble,ManagerName)->
     Msg=#msg{cmd=?VOTE_CMD,value=V},
     lists:map(fun(N)->
 		      lager:info("send ~p ~p",[N,ManagerName]),
-		      erlang:send({ManagerName,N},Msg) end ,Ensemble).
+		      catch erlang:send({ManagerName,N},Msg) end ,Ensemble).
     
 %    R=[erlang:send({ManagerName,Node},Msg)||Node<-Ensemble],
 %    lager:info("send ~p",[R]) 
