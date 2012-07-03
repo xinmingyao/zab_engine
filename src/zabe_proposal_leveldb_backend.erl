@@ -10,7 +10,7 @@
 -behaviour(gen_server).
 -behaviour(zabe_proposal_backend).
 %% API
--export([start_link/1,start/1]).
+-export([start_link/2,start/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -20,11 +20,13 @@
 -include("zabe_main.hrl").
 -compile([{parse_transform, lager_transform}]).
 
--record(state, {leveldb}).
--define(MAX_PROPOSAL,999999999999999999999999999999).
+-record(state, {leveldb,prefix}).
+-define(MAX_PROPOSAL,"999999999999999999999999999999").
 
 
 -export([put_proposal/3,get_proposal/2,get_last_proposal/1,fold/3,get_epoch_last_zxid/2]).
+-export([iterate_zxid_count/3,trunc/3,delete_proposal/2]).
+
 
 
 %%%===================================================================
@@ -38,10 +40,20 @@ put_proposal(Key,Proposal,Opts)->
 get_proposal(Key,Opts)->
     gen_server:call(?SERVER,{get_proposal,Key,Opts})   
 	.
+delete_proposal(Key,Opts)->
+    gen_server:call(?SERVER,{delete_proposal,Key,Opts})   .
+
 fold(Fun,Start,Opts)->
     gen_server:call(?SERVER,{fold,Fun,Start,Opts}).
 get_epoch_last_zxid(Epoch,Opts)->
     gen_server:call(?SERVER,{get_epoch_last_zxid,Epoch,Opts}).
+
+				
+iterate_zxid_count(Fun,Start,Count)->
+    gen_server:call(?SERVER,{iterate_zxid_count,Fun,Start,Count}).
+
+trunc(Fun,Start,Opts)->
+    gen_server:call(?SERVER,{trunc,Fun,Start,Opts}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -52,8 +64,8 @@ get_epoch_last_zxid(Epoch,Opts)->
 %%--------------------------------------------------------------------
 start(Dir)->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Dir], []).
-start_link(Dir) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [Dir], []).
+start_link(Dir,Opts) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [Dir,Opts], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -70,12 +82,26 @@ start_link(Dir) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([Dir]) ->    
+-define(INIT_MAX,<<"zzzzzzzzzzzzzzzzzzz">>).
+
+
+init([Dir,Opts]) ->    
    % WorkDir="/home/erlang/tmp/proposal.bb",
+    Prefix        = proplists:get_value(prefix,Opts,""),
+   % eleveldb:repair(Dir,[]),
     case eleveldb:open(Dir, [{create_if_missing, true},{max_open_files,50}]) of
         {ok, Ref} ->
 	    lager:info("zab engine start db on log dir ~p ok",[Dir]),
-	    {ok, #state { leveldb = Ref }};
+	    
+	    case eleveldb:get(Ref,?INIT_MAX,[]) of
+		not_found->
+		    eleveldb:put(Ref,?INIT_MAX,?INIT_MAX,[]);
+                {error,Reason}->
+		    lager:info("erorr ~p",[Reason]);
+		_->
+		    ok
+            end ,
+	    {ok, #state { leveldb = Ref ,prefix=Prefix }};
 	{error, Reason} ->
 	    lager:info("zab engine start db on log dir ~p error:",[Reason]),
 	    {error, Reason}
@@ -97,19 +123,19 @@ init([Dir]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call({put_proposal,Zxid,Proposal,_Opts}, _From, State=#state{leveldb=Db}) ->
+handle_call({put_proposal,Zxid,Proposal,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
 %    {_Epoch,TxnId}=Zxid,
-    Key=zabe_util:encode_zxid(Zxid),
+    Key=zabe_util:encode_key(zabe_util:encode_zxid(Zxid),Prefix),
      case eleveldb:put(Db,list_to_binary(Key),erlang:term_to_binary(Proposal),[]) of
 	ok->
 	    {reply, ok, State};
 	{error,Reason} ->
 	    {reply, {error,Reason}, State}
     end;
-handle_call({get_proposal,Zxid,_Opts}, _From, State=#state{leveldb=Db}) ->
+handle_call({get_proposal,Zxid,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
    % {_Epoch,TxnId}=Zxid,
    % Key=integer_to_list(TxnId),
-    Key=zabe_util:encode_zxid(Zxid),
+    Key=zabe_util:encode_key(zabe_util:encode_zxid(Zxid),Prefix),
     case eleveldb:get(Db,list_to_binary(Key),[]) of
 	{ok,Value}->
 	    {reply,{ok,erlang:binary_to_term(Value)}, State};
@@ -118,42 +144,86 @@ handle_call({get_proposal,Zxid,_Opts}, _From, State=#state{leveldb=Db}) ->
 	{error,Reason} ->
 	    {reply, {error,Reason}, State}
     end;
-handle_call({get_last_proposal,_Opts}, _From, State=#state{leveldb=Db}) ->
+
+handle_call({delete_proposal,Zxid,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
+   % {_Epoch,TxnId}=Zxid,
+   % Key=integer_to_list(TxnId),
+    Key=zabe_util:encode_key(zabe_util:encode_zxid(Zxid),Prefix),
+    case eleveldb:delete(Db,list_to_binary(Key),[]) of
+	ok->
+	    {reply,ok, State};
+	{error,Reason} ->
+	    {reply, {error,Reason}, State}
+    end;
+
+handle_call({get_last_proposal,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
     {ok,Itr}=eleveldb:iterator(Db,[]),
-    Zxid=case eleveldb:iterator_move(Itr,last) of
+%    Max= zabe_util:encode_key(?MAX_PROPOSAL,Prefix),
+    Max=zabe_util:encode_zxid({999999999,1}),
+    K1=list_to_binary(zabe_util:encode_key(Max,Prefix)),
+   
+    Zxid= case eleveldb:iterator_move(Itr,K1) of
+	      {error,invalid_iterator}->
+		  not_found;
+	      {error,iterator_closed}->
+		  not_found;
+	      {ok,_Key,_}->
+		  case eleveldb:iterator_move(Itr,prev) of
+		     {error,invalid_iterator}->
+			 not_found;
+		     {error,iterator_closed}->
+			 not_found;
+		     {ok,Key1,_}->
+			 case zabe_util:prefix_match(Key1,Prefix) of
+			     true->
+				 zabe_util:decode_zxid(zabe_util:decode_key(binary_to_list(Key1),Prefix));
+			     false ->
+				 not_found5
+			 end
+		 end
+	 end
+	    
+    ,
+
+    {reply,{ok,Zxid},State};
+handle_call({get_epoch_last_zxid,Epoch,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
+    {ok,Itr}=eleveldb:iterator(Db,[]),
+    Start=zabe_util:encode_zxid({Epoch+1,0}),
+    Zxid=case eleveldb:iterator_move(Itr,list_to_binary(zabe_util:encode_key(Start,Prefix))) of
 	     {error,invalid_iterator}->
 		 not_found;
 	     {error,iterator_closed}->
 		 not_found;
-	     {ok,Key,_Value}->
-		 zabe_util:decode_zxid(binary_to_list(Key));
-	     {ok,Key}->
-		 zabe_tuil:decode_zxid(binary_to_list(Key))
+	     {ok,_,_}->
+		 case eleveldb:iterator_move(Itr,prev) of
+		     {error,invalid_iterator}->
+			 not_found;
+		     {error,iterator_closed}->
+			 not_found;
+		     {ok,Key,_}->
+			 case zabe_util:prefix_match(Key,Prefix) of
+			     true->
+				 zabe_util:decode_zxid(zabe_util:decode_key(binary_to_list(Key),Prefix));
+			     false ->
+				 not_found
+			 end
+		 end
 	 end,
     {reply,{ok,Zxid},State};
-handle_call({get_epoch_last_zxid,Epoch,_Opts}, _From, State=#state{leveldb=Db}) ->
-    {ok,Itr}=eleveldb:iterator(Db,[]),
-    Start={Epoch+1,0},
-    eleveldb:iterator_move(Itr,list_to_binary(zabe_util:encode_zxid(Start))),
-    Zxid=case eleveldb:iterator_move(Itr,prev) of
-	     {error,invalid_iterator}->
-		 not_found;
-	     {error,iterator_closed}->
-		 not_found;
-	     {ok,Key,_Value}->
-		 zabe_util:decode_zxid(binary_to_list(Key));
-	     {ok,Key}->
-		 zabe_tuil:decode_zxid(binary_to_list(Key))
-	 end,
-    {reply,{ok,Zxid},State};
-handle_call({fold,Fun,Start,_Opts}, _From, State=#state{leveldb=Db}) ->
+
+handle_call({fold,Fun,Start,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
     
     L=eleveldb:fold(Db,
 		       Fun,
-		       [], [{first_key, list_to_binary(zabe_util:encode_zxid(Start))}]),
+		       [], [{first_key, list_to_binary(zabe_util:encode_key(zabe_util:encode_zxid(Start),Prefix))}]),
 
-    {reply,{ok,L},State}.
-
+    {reply,{ok,L},State};
+handle_call({iterate_zxid_count,Fun,Start,Count}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
+    L=eleveldb_util:iterate_zxid_count(Db,Fun,Start,Prefix,Count),
+     {reply,{ok,L},State};
+handle_call({trunc,Fun,Start,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
+    L=eleveldb_util:trunc_proposals(Db,Fun,Start,Prefix),
+     {reply,{ok,L},State}.
 
 
 
@@ -194,7 +264,8 @@ handle_info(_Info, State) ->
 %% @spec terminate(Reason, State) -> void()
 %% @end
 %%--------------------------------------------------------------------
-terminate(_Reason, _State) ->
+terminate(_Reason, #state{leveldb=_Db}) ->
+   % eleveldb:destroy(Db,[]),
     ok.
 
 %%--------------------------------------------------------------------

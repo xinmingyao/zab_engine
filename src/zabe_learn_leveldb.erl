@@ -69,7 +69,7 @@ init([WorkDir]) ->
 	    lager:info("open db on:~p ok",[WorkDir]),
 	    case eleveldb:get(Ref,?LAST_ZXID_KEY,[]) of
 		{ok,Value}->
-		    {ok,#state{leveldb=Ref},term_to_binary(Value)};
+		    {ok,#state{leveldb=Ref},binary_to_term(Value)};
 		not_found->
 		    {ok,#state{leveldb=Ref},{0,0}};
 		{error,Reason}->

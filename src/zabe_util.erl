@@ -3,7 +3,39 @@
 -export([zxid_eq/2,zxid_big/2,zxid_plus/1,zxid_compare/2]).
 -export([epoch_to_string/1,txn_to_string/1]).
 
+-export([decode_key/2,encode_key/2,prefix_match/2]).
+
+-export([zxid_big_eq/2,change_leader_zxid/1]).
+
+
 -include("zabe_main.hrl").
+
+change_leader_zxid({E,_Txn})->
+    {E+1,0}.
+%    if
+%	E=:=0 andalso Txn =:=0-> 
+%	    {1,1};
+%	true -> 
+%	    {E+1,1}
+%    end
+
+zxid_big_eq(Z1,Z2)->
+    zxid_eq(Z1,Z2) orelse zxid_big(Z1,Z2).
+
+prefix_match(String,Match)->
+
+    case re:run(String,Match) of
+	{match,[{0,Len}]}when Len==length(Match)->
+		true;
+	     _ ->false
+	end.
+
+decode_key(Key,Prefix)->
+    Len=erlang:length(Prefix),
+    string:substr(Key,Len+1,length(Key)-Len).
+
+encode_key(Key,Prefix)->
+    Prefix++Key.
 
 -spec zxid_compare(Z1::zxid(),Z2::zxid())->
 			  equal|big|epoch_smsall.

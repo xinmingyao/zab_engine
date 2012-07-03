@@ -1,4 +1,4 @@
--module(zabe_learn_leveldb_SUITE).
+-module('recover1_SUITE').
 -compile(export_all).
 -include_lib("common_test/include/ct.hrl").
 -compile([{parse_transform, lager_transform}]).
@@ -23,7 +23,7 @@ setup(Dir) ->
     application:start(compiler),
     application:start(syntax_tools),
     application:start(lager),
-    %os:cmd("rm -rf "++Dir),
+   % os:cmd("rm -rf "++Dir),
     timer:sleep(2),
     zabe_proposal_leveldb_backend:start_link(Dir,[]),
  ok   
@@ -39,7 +39,7 @@ end_per_suite(Config)->
 
 
 init_per_testcase(_TestCase, Config) ->
-   % os:cmd("rm -rf /tmp/proposal.bb"),
+   %  os:cmd("rm -rf /tmp/proposal.bb"),
    % timer:sleep(2),
    % {ok,Pid}=zabe_proposal_leveldb_backend:start_link("/tmp/proposal.bb",[]),
    % [{pid,Pid}|Config]
@@ -58,7 +58,8 @@ end_per_testcase(_TestCase, Config) ->
 all()->
     [elect].
 
-elect(Config)-> D1="/tmp/1.db",
+elect(Config)->
+    D1="/tmp/1.db",
     D2="/tmp/2.db",
     D3="/tmp/3.db",
     Op1=[{proposal_dir,"/tmp/p1.db"}],
@@ -81,21 +82,26 @@ elect(Config)-> D1="/tmp/1.db",
     setup("/tmp/p1.db"),
     ok=rpc:call('n1@localhost',zabe_learn_leveldb_SUITE,setup,["/tmp/p2.db"]),
     ok=rpc:call('n2@localhost',zabe_learn_leveldb_SUITE,setup,["/tmp/p3.db"]),
-    timer:sleep(800),
+    timer:sleep(500),
     {ok,_}=zabe_learn_leveldb:start_link(Nodes,Op1,D1),    
     
-    {ok,_}=rpc:call('n1@localhost',zabe_learn_leveldb,start_link,[Nodes,Op2,D2]),
-
     {ok,_}=rpc:call('n2@localhost',zabe_learn_leveldb,start_link,[Nodes,Op3,D3]),
     timer:sleep(2000),
 
     Key="test1",
     Value="value1",
     ok=zabe_learn_leveldb:put(Key,Value),
+    ok=zabe_learn_leveldb:put("k1","v1"),
+    ok=zabe_learn_leveldb:put("k2","v2"),
+    ok=zabe_learn_leveldb:put("k3","v3"),
     {ok,Value}=zabe_learn_leveldb:get(Key),
 
     {ok,Value}=rpc:call('n2@localhost',zabe_learn_leveldb,get,[Key]),
+    
+    {ok,_}=rpc:call('n1@localhost',zabe_learn_leveldb,start_link,[Nodes,Op2,D2]),
+    timer:sleep(500),
     {ok,Value}=rpc:call('n1@localhost',zabe_learn_leveldb,get,[Key]),
+    {ok,"v3"}=rpc:call('n1@localhost',zabe_learn_leveldb,get,["k3"]),
     ok
     .
 

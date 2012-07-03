@@ -52,7 +52,7 @@
 %% See gen_server.
 -type caller_ref() :: {pid(), reference()}.
 %% Opaque state of the gen_leader behaviour.
--record(proposal_rec,{zxid::zxid(),proposal::#proposal{},acks::list()}).
+-record(proposal_rec,{zxid::zxid(),proposal::#proposal{},acks::list(),commit::boolean()}).
 -record(server, {
           parent,
           mod,
@@ -71,7 +71,8 @@
 	  elect_pid::pid(),
 	  live_nodes::dict:new(),
 	  recover_acks::dict:new(),
-	  mon_leader_ref::reference()
+	  mon_leader_ref::reference(),
+	  mon_follow_refs::dict:new()
          }).
 
 %%% ---------------------------------------------------
@@ -258,14 +259,14 @@ init_it(Starter,Parent,Name,Mod,{CandidateNodes,OptArgs,Arg},Options) ->
 		       end,
 
 	     Election=#election{parent=Mod,last_zxid=LastZxid,ensemble=Ensemble,quorum=Quorum,last_commit_zxid=LastCommitZxid},
-	     lager:info("~p",[Election]),
+	     
 	     {ok,Pid}=ElectMod:start_link(Election),
-	     lager:info("~p",[Pid]),
 	     Que=ets:new(list_to_atom(atom_to_list(Mod)++"_que"),[{keypos,2}]),
 	     loop(#server{parent = Parent,mod = Mod,elect_pid=Pid,
 				  ensemble=Ensemble,
 				  last_commit_zxid=LastCommitZxid,
 			          recover_acks=dict:new(),
+			  mon_follow_refs=dict:new(),
 				  state = State,last_zxid=LastZxid,current_zxid=LastZxid,proposal_log_mod=ProposalLogMod,
 				  debug = Debug,quorum=Quorum,proposal_que=Que},looking,#zab_server_info{}
 			 )
@@ -280,14 +281,53 @@ init_it(Starter,Parent,Name,Mod,{CandidateNodes,OptArgs,Arg},Options) ->
 %%% The MAIN loops.
 %%% ---------------------------------------------------
 
-loop(Server=#server{debug=Debug,elect_pid=EPid},ZabState,ZabServerInfo)->
+loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
+		    last_commit_zxid=LastCommitZxid,proposal_que=Que,
+		    mon_follow_refs=MonFollowRefs,quorum=Quorum,
+		    mon_leader_ref=ModLeaderRef},ZabState,ZabServerInfo)->
     receive
 	Msg1->
 	    lager:info("zab state:~p receive msg:~p",[ZabState,Msg1]),
 	    case Msg1 of
-		#msg{cmd=?VOTE_CMD,value=V}->
+		{'DOWN',ModLeaderRef,_,_,_}->
+		    ets:delete_all_objects(Que),
+		    
+		    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
+		    lager:info("zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
+		    loop(Server#server{
+			    recover_acks=dict:new(),
+			    mon_follow_refs=dict:new()
+			   },looking,#zab_server_info{}
+			 )
+		    ;
+		{'DOWN',_MRef,process,F={_Mod,_Node},_} when ZabState=:=leading->
+		    N1=dict:erase(F,MonFollowRefs),
+
+		    S1=dict:size(N1)+1 ,
+		    if S1>=Quorum
+		       ->loop(Server#server{mon_follow_refs=N1},ZabState,ZabServerInfo);
+		       true->
+			    ets:delete_all_objects(Que),
+			    lager:info("zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
+			    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
+			    loop(Server#server{
+				    recover_acks=dict:new(),
+				    mon_follow_refs=dict:new()
+				   },looking,#zab_server_info{}
+				)
+		    end
+			     
+		    ;
+		    
+		#msg{cmd=?VOTE_CMD,value=V} ->
 		    gen_fsm:send_event(EPid,V),
 		    loop(Server,ZabState,ZabServerInfo);
+		%#msg{cmd=?VOTE_CMD,value=V}->
+		%    V=erlang:get(vote),
+		%    V1=V#vote{from=node(),leader=V#vote.leader,zxid=LastZxid},
+		%    send_zab_msg(V#vote.from,V1), 
+		% 
+		%    loop(Server,ZabState,ZabServerInfo);
 		#msg{cmd=?ZAB_CMD,value=Value}->
 		    ?MODULE:ZabState(Server,Value,ZabState,ZabServerInfo);
 		{'$proposal_call',From,_Msg} when (ZabState =/=leading andalso  ZabState =/=following) ->
@@ -310,40 +350,85 @@ loop(Server=#server{debug=Debug,elect_pid=EPid},ZabState,ZabServerInfo)->
     end.
 		    
 
-looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=_EPid,
+looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=EPid,
 		last_zxid=LastZxid,last_commit_zxid=LastCommitZxid,
+		mon_follow_refs=MonFollowRefs,
+		proposal_que=Que,
 		proposal_log_mod=ProposalLogMod} = Server
 	,Msg1,ZabState,ZabServerInfo)->
     case Msg1 of
 	{elect_reply,{ok,V=#vote{leader=Node},RecvVotes}} when Node=:=node() ->	    
 	    erlang:put(vote,V),
-	    case zabe_util:zxid_eq(LastZxid,LastCommitZxid) of
-		true -> ok;
-		false->ProposalLogMod:fold(fun({_Key,P1})->
-						   exit(todo),
-					   Mod:handle_commit(P1#proposal.transaction#transaction.value,P1#proposal.transaction#transaction.zxid,State,ZabServerInfo) end,LastCommitZxid,[])
+	    Last=case zabe_util:zxid_eq(LastZxid,LastCommitZxid) of
+		true -> LastCommitZxid;
+		false->ProposalLogMod:fold(fun({_Key,P1},_Acc)->
+						   
+					   Mod:handle_commit(P1#proposal.transaction#transaction.value,
+							     P1#proposal.transaction#transaction.zxid,State,ZabServerInfo) ,
+						   P1#proposal.transaction#transaction.zxid
+					   end,
+					   LastCommitZxid,LastCommitZxid)
 	    end,
-	     monitor_follows(RecvVotes,Quorum),
-	    loop(Server#server{role=?LEADING,leader=Node},leader_recover,ZabServerInfo) ;
-	{elect_reply,{ok,V=#vote{leader=Node,zxid=LeaderZxid},_}}  -> 
+	    
+	    %%monitor_follows(RecvVotes,Quorum),
+	    %%
+	    %lager:info("monitors ~p~p",[MonFollowRefs,RecvVotes]),
+	    
+	    N5=lists:foldl(fun(#vote{from=From},Acc)->
+
+				   if From=:=node() ->
+					   Acc;
+				      true->
+					   case catch erlang:monitor(process,{Mod,From}) of
+					       {'EXIT',_}->
+						   Acc;
+					       Ref->
+						   dict:store({Mod,From},Ref,Acc) end end end,MonFollowRefs,RecvVotes),
+	    T6=dict:size(N5)+1,
+	    if T6 >=Quorum 
+	       ->
+	
+	    %%
+		    loop(Server#server{role=?LEADING,leader=Node,last_zxid=Last,mon_follow_refs=N5,
+				       last_commit_zxid=Last},leader_recover,ZabServerInfo) ;
+	       true-> 
+		    ets:delete_all_objects(Que),
+			    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
+			    loop(Server#server{
+				    recover_acks=dict:new(),
+				    mon_follow_refs=dict:new()
+				   },looking,#zab_server_info{}
+				)
+	    end;
+	{elect_reply,{ok,V=#vote{leader=Node,zxid=_LeaderZxid},_}}  -> 
 	    erlang:put(vote,V),
-	    monitor_leader(Node),
-	    case zabe_util:zxid_compare(LeaderZxid,LastZxid) of
-		epoch_small->
+	    monitor_leader(Mod,Node),
+	    case catch erlang:monitor(process,{Mod,Node}) of
+		{'EXIT',_}->
+		    restart_elect;
+		Ref->
+       %	    case zabe_util:zxid_compare(LeaderZxid,LastZxid) of
+       %		epoch_small1->
+		    timer:sleep(50),%%todo fix this by leader handle this
 		    M1={truncate_req,{Mod,node()},LastZxid},
 		    
 		    send_zab_msg({Mod,Node},M1),
-		    loop(Server#server{leader=Node,role=?FOLLOWING},follow_recover,ZabServerInfo) ;
-		equal->
-		    timer:sleep(50), %%leader maybe slow,and in looking state todo fix this,use timer send to leader
-		    M1={recover_ok,{Mod,node()}},
-		    send_zab_msg({Mod,Node},M1),
-		    loop(Server#server{leader=Node,role=?FOLLOWING},following,ZabServerInfo) ;
-		big->
-		    M1={recover_req,{Mod,node()},LastZxid},
-		    send_zab_msg({Mod,Node},M1),
-		    loop(Server#server{leader=Node,role=?FOLLOWING},follow_recover,ZabServerInfo)
+		    loop(Server#server{leader=Node,role=?FOLLOWING,mon_leader_ref=Ref},follow_recover,ZabServerInfo) 
 	    end;
+	 
+		
+		
+	%	equal->
+        %		    timer:sleep(50), %%leader maybe slow,and in looking state todo fix this,use timer send to leader
+	%	    M1={recover_ok,{Mod,node()}},
+	%	    send_zab_msg({Mod,Node},M1),
+        %		    loop(Server#server{leader=Node,role=?FOLLOWING},following,ZabServerInfo) ;
+	%	_->
+	%	    timer:sleep(50),
+	%	    M1={recover_req,{Mod,node()},LastZxid},
+        %		    send_zab_msg({Mod,Node},M1),
+	%	    loop(Server#server{leader=Node,role=?FOLLOWING},follow_recover,ZabServerInfo)
+	%    end;
 	    
 	 _ -> %flush msg
 	    loop(Server,ZabState,ZabServerInfo) 
@@ -353,28 +438,50 @@ looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=_E
 
 leader_recover(#server{mod = _Mod, state = _State,debug=_Debug,quorum=Quorum,elect_pid=_EPid,
 		last_zxid=LastZxid,last_commit_zxid=_LastCommitZxid,recover_acks=RecoverAcks,
-		proposal_log_mod=ProposalLogMod} = Server
+		proposal_log_mod=ProposalLogMod,
+		       current_zxid=CurZxid,mon_follow_refs=MRefs
+		      } = Server
 	,Msg1,ZabState,ZabServerInfo)->
     case Msg1 of
 	{recover_ok,From} ->	    
 	    D1=dict:store(From,"",RecoverAcks),
+	    NRefs=case dict:is_key(From,MRefs) of
+		true->MRefs;
+		false->
+		   case catch erlang:monitor(process,From) of
+				    {'EXIT',_}->
+					MRefs;
+				    Ref->
+					dict:store(From,Ref,MRefs)
+		   end
+	    end,
 	    Z=dict:size(D1)+1,
 	    if Z>=Quorum ->
-		    loop(Server#server{recover_acks=D1},leading,ZabServerInfo);
+		    lager:info("leader recover change state to leading"),
+		    %%change epoch for handle old leader restart
+		    Z1=zabe_util:change_leader_zxid(LastZxid),
+		    loop(Server#server{recover_acks=D1,mon_follow_refs=NRefs,last_zxid=Z1,last_commit_zxid=Z1},leading,ZabServerInfo);
 	       true->
-		    loop(Server#server{recover_acks=D1},ZabState,ZabServerInfo)
+		    loop(Server#server{recover_acks=D1,mon_follow_refs=NRefs},ZabState,ZabServerInfo)
 	    end;
 	{truncate_req,From,{Epoch1,_}}  -> 
-	    {ok,EpochLastZxid}=ProposalLogMod:get_epoch_last_zxid(Epoch1),
+	    {LeaderEpoch,_}=LastZxid,
+	    EpochLastZxid=if LeaderEpoch > Epoch1
+	       ->{ok,EL}=ProposalLogMod:get_epoch_last_zxid(Epoch1,[]),EL;
+	       true -> 
+		    not_need
+	    end,	    	    
 	    M1={truncate_ack,EpochLastZxid},
 	    send_zab_msg(From,M1),
 	    loop(Server,ZabState,ZabServerInfo);
 
-	{recover_req,From,LastZxid} ->
-	    ProposalLogMod:fold(fun(Proposal)->
-					M1={recover_ack,Proposal},
-					send_zab_msg(From,M1)
-				end ,LastZxid),
+	{recover_req,From,StartZxid} ->
+	    {ok,Res}=ProposalLogMod:iterate_zxid_count(fun({_K,V})->
+				       V end,StartZxid,100),
+	    
+	    M1={recover_ack,Res,CurZxid},
+	    
+	    send_zab_msg(From,M1),
 	    loop(Server,ZabState,ZabServerInfo);
 	_ -> %flush msg
 	    loop(Server,ZabState,ZabServerInfo) 
@@ -382,37 +489,116 @@ leader_recover(#server{mod = _Mod, state = _State,debug=_Debug,quorum=Quorum,ele
 .
 
 follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
-		last_zxid=_LastZxid,last_commit_zxid=_LastCommitZxid,recover_acks=_RecoverAcks,
+		last_zxid=LastZxid,last_commit_zxid=_LastCommitZxid,recover_acks=_RecoverAcks,
+		proposal_que=Que,
 		proposal_log_mod=ProposalLogMod} = Server
 	,Msg1,ZabState,ZabServerInfo)->
     case Msg1 of
-	{recover_ack,Proposal} ->
-	    ProposalLogMod:put_proposal(Proposal#proposal.transaction#transaction.zxid,Proposal,[]),
-	    Mod:handle_commit(Proposal#proposal.transaction#transaction.value,Proposal#proposal.transaction#transaction.zxid,State,ZabServerInfo),
-	    Vote=erlang:get(vote),
-	    case zabe_util:zxid_eq(Proposal#proposal.transaction#transaction.zxid,Vote#vote.zxid) of
-		true->
-		    M1=#msg{cmd=?ZAB_CMD,value={recover_ok,{Mod,node()}}},
+	{recover_ack,Proposals,_LeaderCurrentZxid} ->
+	    Last=lists:foldl(fun(Proposal,_)->
+			      ProposalLogMod:put_proposal(Proposal#proposal.transaction#transaction.zxid,Proposal,[]),
+			      Mod:handle_commit(Proposal#proposal.transaction#transaction.value,
+						Proposal#proposal.transaction#transaction.zxid,State,ZabServerInfo),
+				Proposal#proposal.transaction#transaction.zxid
+		      end ,LastZxid,Proposals),
+	    QueSize=ets:info(Que,size),
+	    case Proposals of
+		[] when QueSize=:=0->
+		    M1={recover_ok,{Mod,node()}},
 		    send_zab_msg({Mod,Leader},M1),
+		    lager:info("follow recover ok,state to followiing"),
 		    loop(Server,following,ZabServerInfo);
-		false->
-		    loop(Server,ZabState,ZabServerInfo)
+		[] when QueSize>0-> %recover local
+		    NewZxid=fold_all(Que,fun(P1,Acc)->
+					 Z1=P1#proposal_rec.proposal#proposal.transaction#transaction.zxid,
+					 case zabe_util:zxid_big_eq(Last,Z1) of
+					     true->Acc;
+					     false->
+						 ProposalLogMod:put_proposal(Z1,P1#proposal_rec.proposal,[]),
+						 Mod:handle_commit(P1#proposal_rec.proposal,Z1,State,ZabServerInfo),
+						 Z1
+					 end end,Last),
+		    loop(Server#server{last_zxid=NewZxid,last_commit_zxid=NewZxid},following,ZabServerInfo)    
+			;
+
+		_ when QueSize=:=0->
+		    M1={recover_req,{Mod,node()},zabe_util:zxid_plus(Last)},
+			    send_zab_msg({Mod,Leader},M1),
+		    loop(Server,ZabState,ZabServerInfo);
+		_ when QueSize>0 ->
+		    Min=ets:first(Que),
+		    [M2|_]=ets:lookup(Que,Min#proposal_rec.zxid),
+		    Pro=M2#proposal_rec.proposal,
+		    MinZxid = Pro#proposal.transaction#transaction.zxid,
+                    case zabe_util:zxid_big(Last,MinZxid) of
+			true->
+			    NewZxid=fold_all(Que,fun(P1,Acc)->
+						 Z1=P1#proposal_rec.proposal#proposal.transaction#transaction.zxid,
+						 case zabe_util:zxid_big_eq(Last,Z1) of
+						     true->Acc;
+						     false->
+							 ProposalLogMod:put_proposal(Z1,P1#proposal_rec.proposal,[]),
+							 Mod:handle_commit(P1#proposal_rec.proposal,Z1,State,ZabServerInfo),
+							 Z1
+						 end end,Last),
+			    loop(Server#server{last_zxid=NewZxid,last_commit_zxid=NewZxid},following,ZabServerInfo)    
+				;
+			false ->
+			    M1={recover_req,{Mod,node()},zabe_util:zxid_plus(Last)},
+			    send_zab_msg({Mod,Leader},M1),
+			    loop(Server,ZabState,ZabServerInfo)
+		    end
 	    end
-	    
-	    ;
-	{truncate_ack,LeaderEpochLastZxid}  -> 
-	    ok=ProposalLogMod:truncate(LeaderEpochLastZxid),
-	    M1=#msg{cmd=?ZAB_CMD,value={recover_req,{Mod,node()},LeaderEpochLastZxid}},
+		;
+	{truncate_ack,LeaderEpochLastZxid}  ->
+	    {E1,_}=LastZxid,
+	    MZxid=case LeaderEpochLastZxid of
+		      not_need->zabe_util:zxid_plus(LastZxid);
+		      not_found->{E1+1,1};
+		_->
+			  
+			  {ok,L1}=ProposalLogMod:trunc(fun({K,_V})->
+							       K end ,zabe_util:zxid_plus(LeaderEpochLastZxid),[]),
+			  lists:map(fun(Key)->
+					    ProposalLogMod:delete_proposal(Key,[]) end,L1),
+			  {E1+1,1}
+	    end,
+	    M1={recover_req,{Mod,node()},MZxid},
 	    send_zab_msg({Mod,Leader},M1),
 	    loop(Server,ZabState,ZabServerInfo);
-	_ -> %flush msg
+	#zab_req{msg=Msg}->
+	    Zxid1=Msg#proposal.transaction#transaction.zxid,
+	    ets:insert(Que,#proposal_rec{zxid=Zxid1,proposal=Msg,commit=false}),
+	    loop(Server,ZabState,ZabServerInfo);
+	#zab_commit{msg=Zxid1}->
+	    [P1|_]=ets:lookup(Que,Zxid1),
+	    ets:insert(Que,P1#proposal_rec{commit=true}),
+	    loop(Server,ZabState,ZabServerInfo);
+	_ -> %flush msg %todo save proposal msg into que
 	    loop(Server,ZabState,ZabServerInfo) 
     end
 .
 			  
-			      
+fold_all(Que,F,Last)->
+    case 
+	ets:first(Que) of
+	'$end_of_table'->
+	    Last;
+	Key ->
+	    [P1|_]=ets:lookup(Que,Key),
+	    case P1#proposal_rec.commit of
+		true->
+		    ets:delete(Que,Key#proposal_rec.zxid),
+		    A2=F(P1,Last),
+		    fold_all(Que,F,A2);
+		false ->
+		    Last
+	    end
+    end.
 
-monitor_leader(Node)->
+monitor_leader(Mod,Node)->
+    
+    
     todo,
     Proc={?MODULE,Node},
     Proc.
@@ -441,13 +627,13 @@ following(#server{mod = Mod, state = State,
 	    Ack={Zxid1,{Mod,node()}},
 	    
 	    send_zab_msg({Mod,Leader},#zab_ack{msg=Ack}),
-	    loop(Server,ZabState,ZabServerInfo);
+	    loop(Server#server{last_zxid=Zxid1},ZabState,ZabServerInfo);
 	#zab_commit{msg=Zxid1}->
 	    {ok,Proposal}=ProposalLogMod:get_proposal(Zxid1,[]),
 	    Txn=Proposal#proposal.transaction,
 	    {ok,_,Ns}=Mod:handle_commit(Txn#transaction.value,Zxid1,State,ZabServerInfo),
 	    
-	    loop(Server#server{state=Ns},ZabState,ZabServerInfo);
+	    loop(Server#server{state=Ns,last_commit_zxid=Zxid1},ZabState,ZabServerInfo);
 	_ ->
 	    loop(Server,ZabState,ZabServerInfo)
 
@@ -455,9 +641,11 @@ following(#server{mod = Mod, state = State,
 
 
 leading(#server{mod = Mod, state = State,
-		     ensemble=Ensemble,
+		     ensemble=Ensemble,mon_follow_refs=MRefs,
 		     proposal_log_mod=ProposalLogMod,elect_pid=_EPid,
-		     quorum=Quorum,debug=_Debug,current_zxid=Zxid,proposal_que=Que,leader=_Leader} = Server,Msg1,ZabState,ZabServerInfo)->
+		     last_zxid=Zxid,
+		quorum=Quorum,debug=_Debug,current_zxid=CurZxid,proposal_que=Que,leader=_Leader} = Server
+	,Msg1,ZabState,ZabServerInfo)->
     case Msg1 of
 	
 	{'$proposal_call',From,Msg} ->
@@ -476,14 +664,14 @@ leading(#server{mod = Mod, state = State,
 	    A2=dict:store({Mod,node()},"",Acks),
 	    ets:insert(Que,#proposal_rec{zxid=NewZxid,proposal=Proposal,acks=A2}),
 	    %% leader learn first
-	    ProposalLogMod:put_proposal(Zxid,Proposal,[]),
+	    ProposalLogMod:put_proposal(NewZxid,Proposal,[]),
 	    abcast(Mod,lists:delete(node(),Ensemble),ZabReq),
-	    loop(Server#server{current_zxid=NewZxid},ZabState,ZabServerInfo)
+	    loop(Server#server{current_zxid=NewZxid,last_zxid=NewZxid},ZabState,ZabServerInfo)
 		;
 	#zab_ack{msg={Zxid1,From}}->
 	    case ets:lookup(Que,Zxid1) of
 		[]->
-		    lager:info("1"),
+		    
 		    %%maybe delay msg			    lager:info("1"),
 		    do_nothing,log,
 		    loop(Server,ZabState,ZabServerInfo);
@@ -502,13 +690,46 @@ leading(#server{mod = Mod, state = State,
 			    ets:delete(Que,Zxid1),
 			    abcast(Mod,lists:delete(node(),Ensemble),ZabCommit),
 			    reply(P1#proposal.client,Result),
-			    loop(Server#server{state=Ns},ZabState,ZabServerInfo)
+			    loop(Server#server{state=Ns,last_commit_zxid=Zxid1},ZabState,ZabServerInfo)
 				;
 			true -> 
 			    ets:insert(Que,Pro#proposal_rec{acks=A2}),
 			    loop(Server,ZabState,ZabServerInfo)
 		    end
 	    end;
+	{truncate_req,From,{Epoch1,_}}  -> 
+	    {LeaderEpoch,_}=Zxid,
+	    EpochLastZxid=if LeaderEpoch > Epoch1
+	       ->{ok,EL}=ProposalLogMod:get_epoch_last_zxid(Epoch1,[]),EL;
+	       true -> 
+		    not_need
+	    end,	    	    
+%	    {ok,EpochLastZxid}=ProposalLogMod:get_epoch_last_zxid(Epoch1,[]),
+	    M1={truncate_ack,EpochLastZxid},
+	    send_zab_msg(From,M1),
+	    loop(Server,ZabState,ZabServerInfo);
+
+	{recover_req,From,StartZxid} ->
+	    {ok,Res}=ProposalLogMod:iterate_zxid_count(fun({_K,V})->
+				       V end,StartZxid,100),
+	    
+	    M1={recover_ack,Res,CurZxid},
+	    
+	    send_zab_msg(From,M1),
+	    loop(Server,ZabState,ZabServerInfo);
+	{recover_ok,From} ->	    
+	    
+	    NRefs=case dict:is_key(From,MRefs) of
+		true->MRefs;
+		false->
+		   case catch erlang:monitor(process,From) of
+				    {'EXIT',_}->
+					MRefs;
+				    Ref->
+					dict:store(From,Ref,MRefs)
+		   end
+	    end,
+	    loop(Server#server{mon_follow_refs=NRefs},ZabState,ZabServerInfo);	    
 	_ ->
 	    loop(Server,ZabState,ZabServerInfo)	    
     end.

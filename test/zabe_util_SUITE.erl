@@ -30,6 +30,18 @@ end_per_testcase(Config)->
 
 all()->
     [e_2_s,encode,decode].
+
+encode_key(C)->
+    "55123"=zabe_util:encode_key("123","55"),
+    "123"=zabe_util:decode_key("55123","55"),
+    "123"=zabe_util:decode_key("123",""),
+    ok.
+
+prefxi_match(_C)->
+    true=zabe_util:prefix_match("1230000","123"),
+    false=zabe_util:prefix_match("1230000","1234"),
+    false=zabe_util:prefix_match("","1234").
+    
 encode(_)->
     Zxid=zabe_util:encode_zxid({1,2}),
     "000000000100000000000000000002"=Zxid,

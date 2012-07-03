@@ -36,7 +36,7 @@ end_per_group(_GroupName, _Config) ->
 init_per_testcase(_TestCase, Config) ->
     os:cmd("rm -rf /tmp/proposal.bb"),
     timer:sleep(2),
-    {ok,Pid}=zabe_proposal_leveldb_backend:start_link("/tmp/proposal.bb"),
+    {ok,Pid}=zabe_proposal_leveldb_backend:start_link("/tmp/proposal.bb",[{prefix,"100"}]),
     [{pid,Pid}|Config]
 
 
@@ -106,4 +106,31 @@ fold(Config)->
     {ok,L3}=zabe_proposal_leveldb_backend:fold(fun({Key,_Value},Acc)->		
 				   [Key|Acc] end,{10,11},[]),
     2=length(L3),
+    ok.
+
+iterate_zxid_count(Config)->
+    Zxid={10,10},
+    Txn=#transaction{zxid=Zxid,value=test},
+    Proposal=#proposal{transaction=Txn},
+    Z2={10,11},
+    Txn2=#transaction{zxid=Z2,value=test},
+    Proposal2=#proposal{transaction=Txn2},
+    Z3={20,20},
+    Txn3=#transaction{zxid=Z3,value=test},
+    Proposal3=#proposal{transaction=Txn3},
+
+    Z4={20,21},
+    Txn4=#transaction{zxid=Z4,value=test},
+    Proposal4=#proposal{transaction=Txn4},
+
+    zabe_proposal_leveldb_backend:put_proposal(Zxid,Proposal,[]),
+    zabe_proposal_leveldb_backend:put_proposal(Z2,Proposal2,[]),
+    zabe_proposal_leveldb_backend:put_proposal(Z3,Proposal3,[]),
+    zabe_proposal_leveldb_backend:put_proposal(Z4,Proposal4,[]),
+    {ok,L1}=zabe_proposal_leveldb_backend:iterate_zxid_count(fun({_K,V})->
+									V end,Zxid,2),
+    2=length(L1),
+    [Proposal,Proposal2]=L1,
+    {ok,[Proposal3,Proposal4]}=zabe_proposal_leveldb_backend:iterate_zxid_count(fun({_K,V})->
+								  V end,zabe_util:zxid_plus(Z2),2),
     ok.
