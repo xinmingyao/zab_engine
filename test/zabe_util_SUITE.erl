@@ -63,7 +63,15 @@ zxid_compare(Config)->
     epoch_small=zabe_util:zxid_compare({1,2},{2,1}),
     ok.
 
-
+select(C)->
+    Que=ets:new(?MODULE,[{keypos,2},ordered_set]),
+    ets:insert(Que, #proposal_rec{zxid={1,1},commit=true}),
+    ets:insert(Que, #proposal_rec{zxid={1,2},commit=true}),
+    ets:insert(Que, #proposal_rec{zxid={1,3},commit=true}),
+    ets:insert(Que, #proposal_rec{zxid={1,4}}),
+    zabe_util:select_ets(Que,fun(A)->
+				 A end,{1,2})
+    .    
     
 
     

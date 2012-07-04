@@ -52,7 +52,7 @@
 %% See gen_server.
 -type caller_ref() :: {pid(), reference()}.
 %% Opaque state of the gen_leader behaviour.
--record(proposal_rec,{zxid::zxid(),proposal::#proposal{},acks::list(),commit::boolean()}).
+
 -record(server, {
           parent,
           mod,
@@ -261,7 +261,7 @@ init_it(Starter,Parent,Name,Mod,{CandidateNodes,OptArgs,Arg},Options) ->
 	     Election=#election{parent=Mod,last_zxid=LastZxid,ensemble=Ensemble,quorum=Quorum,last_commit_zxid=LastCommitZxid},
 	     
 	     {ok,Pid}=ElectMod:start_link(Election),
-	     Que=ets:new(list_to_atom(atom_to_list(Mod)++"_que"),[{keypos,2}]),
+	     Que=ets:new(list_to_atom(atom_to_list(Mod)++"_que"),[{keypos,2},ordered_set]),
 	     loop(#server{parent = Parent,mod = Mod,elect_pid=Pid,
 				  ensemble=Ensemble,
 				  last_commit_zxid=LastCommitZxid,
@@ -502,6 +502,7 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 				Proposal#proposal.transaction#transaction.zxid
 		      end ,LastZxid,Proposals),
 	    QueSize=ets:info(Que,size),
+	   
 	    case Proposals of
 		[] when QueSize=:=0->
 		    M1={recover_ok,{Mod,node()}},
@@ -509,15 +510,16 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 		    lager:info("follow recover ok,state to followiing"),
 		    loop(Server,following,ZabServerInfo);
 		[] when QueSize>0-> %recover local
-		    NewZxid=fold_all(Que,fun(P1,Acc)->
-					 Z1=P1#proposal_rec.proposal#proposal.transaction#transaction.zxid,
-					 case zabe_util:zxid_big_eq(Last,Z1) of
-					     true->Acc;
-					     false->
-						 ProposalLogMod:put_proposal(Z1,P1#proposal_rec.proposal,[]),
-						 Mod:handle_commit(P1#proposal_rec.proposal,Z1,State,ZabServerInfo),
-						 Z1
-					 end end,Last),
+
+		    F=fun(P1)->
+				      Z1=P1#proposal_rec.proposal#proposal.transaction#transaction.zxid,
+				      ProposalLogMod:put_proposal(Z1,P1#proposal_rec.proposal,[]),
+				      Mod:handle_commit(P1#proposal_rec.proposal,Z1,State,ZabServerInfo),
+							 Z1
+						  end,
+			   % NewZxid=fold_all(Que,F,Last),
+		    NewZxid=fold_all(Que,F,Last,ets:first(Que),LastZxid),
+		    lager:info("follow recover local ok,state to followiing"),
 		    loop(Server#server{last_zxid=NewZxid,last_commit_zxid=NewZxid},following,ZabServerInfo)    
 			;
 
@@ -527,23 +529,27 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 		    loop(Server,ZabState,ZabServerInfo);
 		_ when QueSize>0 ->
 		    Min=ets:first(Que),
-		    [M2|_]=ets:lookup(Que,Min#proposal_rec.zxid),
-		    Pro=M2#proposal_rec.proposal,
-		    MinZxid = Pro#proposal.transaction#transaction.zxid,
-                    case zabe_util:zxid_big(Last,MinZxid) of
-			true->
-			    NewZxid=fold_all(Que,fun(P1,Acc)->
-						 Z1=P1#proposal_rec.proposal#proposal.transaction#transaction.zxid,
-						 case zabe_util:zxid_big_eq(Last,Z1) of
-						     true->Acc;
-						     false->
-							 ProposalLogMod:put_proposal(Z1,P1#proposal_rec.proposal,[]),
-							 Mod:handle_commit(P1#proposal_rec.proposal,Z1,State,ZabServerInfo),
+		   % [M2|_]=ets:lookup(Que,Min),
+		   % Pro=M2#proposal_rec.proposal,
+		    % MinZxid = Pro#proposal.transaction#transaction.zxid,
+                    case zabe_util:zxid_big_eq(Last,Min) of
+			true->		
+			   % lager:info("recover local~p",[ets:tab2list(Que)]),
+			   % lager:info(" recover local ~p ~p",[Last,MinZxid]),
+			    F=fun(P1)->
+				      Z1=P1#proposal_rec.proposal#proposal.transaction#transaction.zxid,
+				      ProposalLogMod:put_proposal(Z1,P1#proposal_rec.proposal,[]),
+				      Mod:handle_commit(P1#proposal_rec.proposal,Z1,State,ZabServerInfo),
 							 Z1
-						 end end,Last),
+						  end,
+			   % NewZxid=fold_all(Que,F,Last),
+			    NewZxid=fold_all(Que,F,Last,Min,LastZxid),
+			    %ets:delete_all_objects(Que),
+			    lager:info("follow recover ok,state to followiing"),
 			    loop(Server#server{last_zxid=NewZxid,last_commit_zxid=NewZxid},following,ZabServerInfo)    
 				;
 			false ->
+			    
 			    M1={recover_req,{Mod,node()},zabe_util:zxid_plus(Last)},
 			    send_zab_msg({Mod,Leader},M1),
 			    loop(Server,ZabState,ZabServerInfo)
@@ -579,22 +585,27 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
     end
 .
 			  
-fold_all(Que,F,Last)->
-    case 
-	ets:first(Que) of
-	'$end_of_table'->
-	    Last;
-	Key ->
-	    [P1|_]=ets:lookup(Que,Key),
-	    case P1#proposal_rec.commit of
-		true->
-		    ets:delete(Que,Key#proposal_rec.zxid),
-		    A2=F(P1,Last),
-		    fold_all(Que,F,A2);
-		false ->
-		    Last
-	    end
-    end.
+fold_all(Que,F,Last,Key,Acc)->
+ case ets:lookup(Que,Key) of
+     [P1|_]->
+	 lager:info("dfdfd~p",[zabe_util:zxid_big_eq(Last,Key)]),
+	 case zabe_util:zxid_big_eq(Last,Key) of
+	     true->
+		 ets:delete(Que,Key),
+		 fold_all(Que,F,Last,zabe_util:zxid_plus(Key),Acc);
+	     _->
+		 case P1#proposal_rec.commit of
+		     true->						%ets:delete(Que,Key#proposal_rec.zxid),
+			 Acc1=F(P1),
+			 ets:delete(Que,Key),
+			 fold_all(Que,F,Last,zabe_util:zxid_plus(Key),Acc1);
+		     false ->
+			 Acc
+		 end
+	 end;
+     _->Acc
+ end
+.
 
 monitor_leader(Mod,Node)->
     

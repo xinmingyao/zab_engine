@@ -5,11 +5,15 @@
 
 -export([decode_key/2,encode_key/2,prefix_match/2]).
 
--export([zxid_big_eq/2,change_leader_zxid/1]).
+-export([zxid_big_eq/2,change_leader_zxid/1,select_ets/3]).
 
 
 -include("zabe_main.hrl").
 
+
+select_ets(Tab,Fun,{Epoch,Txn}=StartZxid)->
+    ets:select(Tab,[{{'_','_','_','_','_'},[],[]}]).
+%    ets:select(Tab,[{{'_','$1','_','_','_'},[{'>','$1',1}]}]).
 change_leader_zxid({E,_Txn})->
     {E+1,0}.
 %    if
@@ -58,7 +62,7 @@ zxid_eq({E1,T1},{E2,T2})->
     E1==E2 andalso T1==T2.
 
 zxid_big({E1,T1},{E2,T2})->
-    E1 >E2 or ((E1==E2) andalso T1>T2).
+    E1 >E2 orelse ((E1==E2) andalso T1>T2).
 encode_zxid({Epoch,Txn})->
     epoch_to_string(Epoch)++txn_to_string(Txn).
 decode_zxid(Zxid)->

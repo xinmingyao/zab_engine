@@ -55,7 +55,7 @@
 
 -record(zab_server_info,{leader,zab_state}).
 
-
+-record(proposal_rec,{zxid::zxid(),proposal::#proposal{},acks::list(),commit::boolean()}).
 
 
 
