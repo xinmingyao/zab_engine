@@ -30,7 +30,7 @@ init([]) ->
 
     ProposalBackEnd = {proposal_backend,
 		    {zabe_proposal_leveldb_backend, start_link,
-		     [ProposalDir]},
+		     [ProposalDir,[]]},
 		       permanent, 5000, worker, [redis_back_end]},
     
 
