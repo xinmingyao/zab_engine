@@ -1,5 +1,6 @@
 
-
+%% author <yaoxinming@gmail.com>
+%% implements zab protocol in erlang,detail see yahoo zab protocol paper
 %% state: init->looking->leader_recover->leading
 %%                       follow_recover->following    ->end
 
@@ -514,8 +515,9 @@ leader_recover(#server{mod = _Mod, state = _State,debug=_Debug,quorum=Quorum,ele
 .
 
 follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
-		last_zxid=LastZxid,last_commit_zxid=_LastCommitZxid,recover_acks=_RecoverAcks,
+		last_zxid=LastZxid,last_commit_zxid=LastCommitZxid,recover_acks=_RecoverAcks,
 		proposal_que=Que,
+		       
 		       back_end_opts=BackEndOpts,
 		proposal_log_mod=ProposalLogMod} = Server
 	,Msg1,ZabState,ZabServerInfo)->
@@ -583,24 +585,38 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 	    end
 		;
 	{truncate_ack,LeaderEpochLastZxid}  ->
-	    {E1,_}=LastZxid,
+	   % {E1,_}=LastZxid,
 	    MZxid=case LeaderEpochLastZxid of
-		      not_need->zabe_util:zxid_plus(LastZxid);
-		      not_found->{E1+1,1};
-		_->
+		      not_need->LastZxid;
+		      not_found->LastZxid;
+		      _->
 			  
 			  {ok,{L2,_}}=
 			      ProposalLogMod:fold(fun({Key,_Value},{Acc,Count})->		
-						   {[Key|Acc],Count} end,{[],infinite},zabe_util:zxid_plus(LeaderEpochLastZxid),BackEndOpts),
+							  {[Key|Acc],Count} end,{[],infinite},
+						  zabe_util:zxid_plus(LeaderEpochLastZxid),BackEndOpts),
 			 % {ok,L1}=ProposalLogMod:trunc(fun({K,_V})->
 			 %				       K end ,zabe_util:zxid_plus(LeaderEpochLastZxid),[]),
 			  lists:map(fun(Key)->
 					    ProposalLogMod:delete_proposal(Key,BackEndOpts) end,lists:reverse(L2)),
-			  {E1+1,1}
+			  LeaderEpochLastZxid
 	    end,
-	    M1={recover_req,{Mod,node()},MZxid},
+            %%%  recover local,redo local log
+
+	    {ok,{_T,_}}=ProposalLogMod:fold(fun({_Key,P1},{_LastCommit,Count})->
+						   
+						   Mod:handle_commit(P1#proposal.transaction#transaction.value,
+								     P1#proposal.transaction#transaction.zxid,State,ZabServerInfo) ,
+						   {P1#proposal.transaction#transaction.zxid,Count}
+					   end,
+					   {LastCommitZxid,infinite},LastCommitZxid,BackEndOpts),
+	    
+    	    
+            %%%
+       
+	    M1={recover_req,{Mod,node()},zabe_util:zxid_plus(MZxid)},
 	    send_zab_msg({Mod,Leader},M1),
-	    loop(Server,ZabState,ZabServerInfo);
+	    loop(Server#server{last_zxid=MZxid,last_commit_zxid=MZxid},ZabState,ZabServerInfo);
 	#zab_req{msg=Msg}->
 	    Zxid1=Msg#proposal.transaction#transaction.zxid,
 	    ets:insert(Que,#proposal_rec{zxid=Zxid1,proposal=Msg,commit=false}),

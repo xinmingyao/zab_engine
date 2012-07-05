@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @author  <>
+%%% @author  <yaoxinming@gmail.com>
 %%% @copyright (C) 2012, 
 %%% @doc
 %%%
@@ -44,7 +44,7 @@ delete_proposal(Key,Opts)->
     gen_server:call(?SERVER,{delete_proposal,Key,Opts})   .
 
 fold(Fun,Acc,Start,Opts)->
-    gen_server:call(?SERVER,{fold,Fun,Acc,Start,Opts}).
+    gen_server:call(?SERVER,{fold,Fun,Acc,Start,Opts},infinity).
 get_epoch_last_zxid(Epoch,Opts)->
     gen_server:call(?SERVER,{get_epoch_last_zxid,Epoch,Opts}).
 
