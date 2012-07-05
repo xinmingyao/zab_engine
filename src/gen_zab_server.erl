@@ -181,15 +181,20 @@ proposal_call(Name, Request) ->
 %% leader dies while the request is outstanding.
 %% @end
 %%
+
 -spec proposal_call(Name::server_ref(), Request::term(),
                   Timeout::integer()) -> term().
 proposal_call(Name, Request, Timeout) ->
-    case catch gen:call(Name, '$proposal_call', Request, Timeout) of
-        {ok,{leader,reply,Res}} ->
+     case catch gen:call(Name, '$proposal_call', Request,Timeout) of
+        
+        {ok,Res={error,not_ready}} ->
+            Res;
+	{ok,Res} ->
             Res;
         {'EXIT',Reason} ->
-            exit({Reason, {?MODULE, leader_call, [Name, Request, Timeout]}})
+            exit({Reason, {?MODULE, proposal_call, [Name, Request,Timeout]}})
     end.
+
 
 
 %% @equiv gen_server:cast/2
