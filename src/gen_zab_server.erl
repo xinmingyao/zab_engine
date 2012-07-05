@@ -294,12 +294,13 @@ init_it(Starter,Parent,Name,Mod,{CandidateNodes,OptArgs,Arg},Options) ->
 loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 		    last_commit_zxid=LastCommitZxid,proposal_que=Que,
 		    mon_follow_refs=MonFollowRefs,quorum=Quorum,
+		    leader=Leader,
 		    mon_leader_ref=ModLeaderRef},ZabState,ZabServerInfo)->
     receive
 	Msg1->
 	    lager:info("zab state:~p receive msg:~p",[ZabState,Msg1]),
 	    case Msg1 of
-		{'DOWN',ModLeaderRef,_,_,_}->
+		{'DOWN',_ModLeaderRef,_,{_,Leader},_}->
 		    ets:delete_all_objects(Que),
 		    
 		    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
@@ -371,13 +372,14 @@ looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=EP
 	    erlang:put(vote,V),
 	    Last=case zabe_util:zxid_eq(LastZxid,LastCommitZxid) of
 		true -> LastCommitZxid;
-		false->ProposalLogMod:fold(fun({_Key,P1},{_LastCommit,Count})->
+		false->{ok,{T,_}}=ProposalLogMod:fold(fun({_Key,P1},{_LastCommit,Count})->
 					   
 					   Mod:handle_commit(P1#proposal.transaction#transaction.value,
 							     P1#proposal.transaction#transaction.zxid,State,ZabServerInfo) ,
 						   {P1#proposal.transaction#transaction.zxid,Count}
 					   end,
-					   {LastCommitZxid,infinite},LastCommitZxid,BackEndOpts)
+						 {LastCommitZxid,infinite},LastCommitZxid,BackEndOpts),
+		       T
 	    end,
 	    
 	    %%monitor_follows(RecvVotes,Quorum),
@@ -477,6 +479,7 @@ leader_recover(#server{mod = _Mod, state = _State,debug=_Debug,quorum=Quorum,ele
 	    if Z>=Quorum ->
 		    lager:info("leader recover change state to leading"),
 		    %%change epoch for handle old leader restart
+		    lager:error("~p LastZxid",[LastZxid]),
 		    Z1=zabe_util:change_leader_zxid(LastZxid),
 		    loop(Server#server{recover_acks=D1,mon_follow_refs=NRefs,last_zxid=Z1,last_commit_zxid=Z1},leading,ZabServerInfo);
 	       true->

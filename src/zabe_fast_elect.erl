@@ -218,10 +218,11 @@ looking1(Vote=#vote{from=_From,leader=Leader,state=PeerState,epoch=PeerEpoch}, S
 			    ok
 		    end;
 	       true ->
+		    
 		    OutOf=State#state.outof_election,
-		    O2=ets:insert(OutOf,Vote),
-		    HaveQuorm=is_have_quorm(State#state.quorum,Vote,O2),
-		    CheckLeader=check_leader(O2,Vote#vote.leader,node()),
+		    ets:insert(OutOf,Vote),
+		    HaveQuorm=is_have_quorm(State#state.quorum,Vote,OutOf),
+		    CheckLeader=check_leader(OutOf,Vote#vote.leader,node()),
 		    if HaveQuorm andalso CheckLeader->
 			   % V1=P1#vote{epoch=PeerEpoch},
 			   % put(?PROPOSED,V1),

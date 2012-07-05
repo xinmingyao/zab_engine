@@ -177,7 +177,7 @@ handle_call({get_last_proposal,Opts}, _From, State=#state{leveldb=Db}) ->
 			     true->
 				 zabe_util:decode_zxid(zabe_util:decode_key(binary_to_list(Key1),Prefix));
 			     false ->
-				 not_found5
+				 not_found
 			 end
 		 end
 	 end
