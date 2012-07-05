@@ -20,12 +20,12 @@
 -include("zabe_main.hrl").
 -compile([{parse_transform, lager_transform}]).
 
--record(state, {leveldb,prefix}).
+-record(state, {leveldb}).
 -define(MAX_PROPOSAL,"999999999999999999999999999999").
 
 
 -export([put_proposal/3,get_proposal/2,get_last_proposal/1,fold/4,get_epoch_last_zxid/2]).
--export([iterate_zxid_count/3,trunc/3,delete_proposal/2]).
+-export([delete_proposal/2]).
 
 
 
@@ -48,12 +48,7 @@ fold(Fun,Acc,Start,Opts)->
 get_epoch_last_zxid(Epoch,Opts)->
     gen_server:call(?SERVER,{get_epoch_last_zxid,Epoch,Opts}).
 
-				
-iterate_zxid_count(Fun,Start,Count)->
-    gen_server:call(?SERVER,{iterate_zxid_count,Fun,Start,Count}).
 
-trunc(Fun,Start,Opts)->
-    gen_server:call(?SERVER,{trunc,Fun,Start,Opts}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -85,9 +80,9 @@ start_link(Dir,Opts) ->
 -define(INIT_MAX,<<"zzzzzzzzzzzzzzzzzzz">>).
 
 
-init([Dir,Opts]) ->    
+init([Dir,_Opts]) ->    
    % WorkDir="/home/erlang/tmp/proposal.bb",
-    Prefix        = proplists:get_value(prefix,Opts,""),
+   % Prefix        = proplists:get_value(prefix,Opts,""),
    % eleveldb:repair(Dir,[]),
     case eleveldb:open(Dir, [{create_if_missing, true},{max_open_files,50}]) of
         {ok, Ref} ->
@@ -101,7 +96,7 @@ init([Dir,Opts]) ->
 		_->
 		    ok
             end ,
-	    {ok, #state { leveldb = Ref ,prefix=Prefix }};
+	    {ok, #state { leveldb = Ref}};
 	{error, Reason} ->
 	    lager:info("zab engine start db on log dir ~p error:",[Reason]),
 	    {error, Reason}
@@ -123,8 +118,9 @@ init([Dir,Opts]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call({put_proposal,Zxid,Proposal,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
+handle_call({put_proposal,Zxid,Proposal,Opts}, _From, State=#state{leveldb=Db}) ->
 %    {_Epoch,TxnId}=Zxid,
+    Prefix = proplists:get_value(prefix,Opts,""),
     Key=zabe_util:encode_key(zabe_util:encode_zxid(Zxid),Prefix),
      case eleveldb:put(Db,list_to_binary(Key),erlang:term_to_binary(Proposal),[]) of
 	ok->
@@ -132,9 +128,10 @@ handle_call({put_proposal,Zxid,Proposal,_Opts}, _From, State=#state{leveldb=Db,p
 	{error,Reason} ->
 	    {reply, {error,Reason}, State}
     end;
-handle_call({get_proposal,Zxid,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
+handle_call({get_proposal,Zxid,Opts}, _From, State=#state{leveldb=Db}) ->
    % {_Epoch,TxnId}=Zxid,
    % Key=integer_to_list(TxnId),
+    Prefix = proplists:get_value(prefix,Opts,""),
     Key=zabe_util:encode_key(zabe_util:encode_zxid(Zxid),Prefix),
     case eleveldb:get(Db,list_to_binary(Key),[]) of
 	{ok,Value}->
@@ -145,9 +142,10 @@ handle_call({get_proposal,Zxid,_Opts}, _From, State=#state{leveldb=Db,prefix=Pre
 	    {reply, {error,Reason}, State}
     end;
 
-handle_call({delete_proposal,Zxid,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
+handle_call({delete_proposal,Zxid,Opts}, _From, State=#state{leveldb=Db}) ->
    % {_Epoch,TxnId}=Zxid,
    % Key=integer_to_list(TxnId),
+    Prefix = proplists:get_value(prefix,Opts,""),
     Key=zabe_util:encode_key(zabe_util:encode_zxid(Zxid),Prefix),
     case eleveldb:delete(Db,list_to_binary(Key),[]) of
 	ok->
@@ -156,7 +154,8 @@ handle_call({delete_proposal,Zxid,_Opts}, _From, State=#state{leveldb=Db,prefix=
 	    {reply, {error,Reason}, State}
     end;
 
-handle_call({get_last_proposal,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
+handle_call({get_last_proposal,Opts}, _From, State=#state{leveldb=Db}) ->
+    Prefix = proplists:get_value(prefix,Opts,""),
     {ok,Itr}=eleveldb:iterator(Db,[]),
 %    Max= zabe_util:encode_key(?MAX_PROPOSAL,Prefix),
     Max=zabe_util:encode_zxid({999999999,1}),
@@ -186,7 +185,8 @@ handle_call({get_last_proposal,_Opts}, _From, State=#state{leveldb=Db,prefix=Pre
     ,
 
     {reply,{ok,Zxid},State};
-handle_call({get_epoch_last_zxid,Epoch,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
+handle_call({get_epoch_last_zxid,Epoch,Opts}, _From, State=#state{leveldb=Db}) ->
+    Prefix = proplists:get_value(prefix,Opts,""),
     {ok,Itr}=eleveldb:iterator(Db,[]),
     Start=zabe_util:encode_zxid({Epoch+1,0}),
     Zxid=case eleveldb:iterator_move(Itr,list_to_binary(zabe_util:encode_key(Start,Prefix))) of
@@ -211,19 +211,13 @@ handle_call({get_epoch_last_zxid,Epoch,_Opts}, _From, State=#state{leveldb=Db,pr
 	 end,
     {reply,{ok,Zxid},State};
 
-handle_call({fold,Fun,Acc,Start,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
-    
+handle_call({fold,Fun,Acc,Start,Opts}, _From, State=#state{leveldb=Db}) ->
+        Prefix = proplists:get_value(prefix,Opts,""),
 %    L=eleveldb:fold(Db,
 %		       Fun,
 %		       [], [{first_key, list_to_binary(zabe_util:encode_key(zabe_util:encode_zxid(Start),Prefix))}]),
     L=eleveldb_util:zxid_fold(Db,Fun,Acc,Start,Prefix),
-    {reply,{ok,L},State};
-handle_call({iterate_zxid_count,Fun,Start,Count}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
-    L=eleveldb_util:iterate_zxid_count(Db,Fun,Start,Prefix,Count),
-     {reply,{ok,L},State};
-handle_call({trunc,Fun,Start,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
-    L=eleveldb_util:trunc_proposals(Db,Fun,Start,Prefix),
-     {reply,{ok,L},State}.
+    {reply,{ok,L},State}.
 
 
 
