@@ -361,8 +361,8 @@ looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=EP
 	    erlang:put(vote,V),
 	    Last=case zabe_util:zxid_eq(LastZxid,LastCommitZxid) of
 		true -> LastCommitZxid;
-		false->ProposalLogMod:fold(fun({_Key,P1},_Acc)->
-						   
+		false->ProposalLogMod:fold(fun({_Key,P1})->
+					   
 					   Mod:handle_commit(P1#proposal.transaction#transaction.value,
 							     P1#proposal.transaction#transaction.zxid,State,ZabServerInfo) ,
 						   P1#proposal.transaction#transaction.zxid
@@ -476,10 +476,14 @@ leader_recover(#server{mod = _Mod, state = _State,debug=_Debug,quorum=Quorum,ele
 	    loop(Server,ZabState,ZabServerInfo);
 
 	{recover_req,From,StartZxid} ->
-	    {ok,Res}=ProposalLogMod:iterate_zxid_count(fun({_K,V})->
-				       V end,StartZxid,100),
+	   % {ok,Res}=ProposalLogMod:iterate_zxid_count(fun({_K,V})->
+	   %			       V end,StartZxid,100),
 	    
-	    M1={recover_ack,Res,CurZxid},
+	    {ok,{Res,_}}=
+		ProposalLogMod:fold(fun({_Key,Value},{Acc,Count})->		
+							   {[Value|Acc],Count-1} end,{[],100},StartZxid,[]),
+    
+	    M1={recover_ack,lists:reverse(Res),CurZxid},
 	    
 	    send_zab_msg(From,M1),
 	    loop(Server,ZabState,ZabServerInfo);
@@ -563,10 +567,13 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 		      not_found->{E1+1,1};
 		_->
 			  
-			  {ok,L1}=ProposalLogMod:trunc(fun({K,_V})->
-							       K end ,zabe_util:zxid_plus(LeaderEpochLastZxid),[]),
+			  {ok,{L2,_}}=
+			      ProposalLogMod:fold(fun({Key,_Value},{Acc,Count})->		
+						   {[Key|Acc],Count} end,{[],infinite},zabe_util:zxid_plus(LeaderEpochLastZxid),[]),
+			 % {ok,L1}=ProposalLogMod:trunc(fun({K,_V})->
+			 %				       K end ,zabe_util:zxid_plus(LeaderEpochLastZxid),[]),
 			  lists:map(fun(Key)->
-					    ProposalLogMod:delete_proposal(Key,[]) end,L1),
+					    ProposalLogMod:delete_proposal(Key,[]) end,lists:reverse(L2)),
 			  {E1+1,1}
 	    end,
 	    M1={recover_req,{Mod,node()},MZxid},
@@ -721,10 +728,14 @@ leading(#server{mod = Mod, state = State,
 	    loop(Server,ZabState,ZabServerInfo);
 
 	{recover_req,From,StartZxid} ->
-	    {ok,Res}=ProposalLogMod:iterate_zxid_count(fun({_K,V})->
-				       V end,StartZxid,100),
+	    {ok,{Res,_}}=
+		ProposalLogMod:fold(fun({_Key,Value},{Acc,Count})->		
+							   {[Value|Acc],Count-1} end,{[],100},StartZxid,[]),
+    
+	   % {ok,Res}=ProposalLogMod:iterate_zxid_count(fun({_K,V})->
+	   %			       V end,StartZxid,100),
 	    
-	    M1={recover_ack,Res,CurZxid},
+	    M1={recover_ack,lists:reverse(Res),CurZxid},
 	    
 	    send_zab_msg(From,M1),
 	    loop(Server,ZabState,ZabServerInfo);

@@ -24,7 +24,7 @@
 -define(MAX_PROPOSAL,"999999999999999999999999999999").
 
 
--export([put_proposal/3,get_proposal/2,get_last_proposal/1,fold/3,get_epoch_last_zxid/2]).
+-export([put_proposal/3,get_proposal/2,get_last_proposal/1,fold/4,get_epoch_last_zxid/2]).
 -export([iterate_zxid_count/3,trunc/3,delete_proposal/2]).
 
 
@@ -43,8 +43,8 @@ get_proposal(Key,Opts)->
 delete_proposal(Key,Opts)->
     gen_server:call(?SERVER,{delete_proposal,Key,Opts})   .
 
-fold(Fun,Start,Opts)->
-    gen_server:call(?SERVER,{fold,Fun,Start,Opts}).
+fold(Fun,Acc,Start,Opts)->
+    gen_server:call(?SERVER,{fold,Fun,Acc,Start,Opts}).
 get_epoch_last_zxid(Epoch,Opts)->
     gen_server:call(?SERVER,{get_epoch_last_zxid,Epoch,Opts}).
 
@@ -211,12 +211,12 @@ handle_call({get_epoch_last_zxid,Epoch,_Opts}, _From, State=#state{leveldb=Db,pr
 	 end,
     {reply,{ok,Zxid},State};
 
-handle_call({fold,Fun,Start,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
+handle_call({fold,Fun,Acc,Start,_Opts}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
     
-    L=eleveldb:fold(Db,
-		       Fun,
-		       [], [{first_key, list_to_binary(zabe_util:encode_key(zabe_util:encode_zxid(Start),Prefix))}]),
-
+%    L=eleveldb:fold(Db,
+%		       Fun,
+%		       [], [{first_key, list_to_binary(zabe_util:encode_key(zabe_util:encode_zxid(Start),Prefix))}]),
+    L=eleveldb_util:zxid_fold(Db,Fun,Acc,Start,Prefix),
     {reply,{ok,L},State};
 handle_call({iterate_zxid_count,Fun,Start,Count}, _From, State=#state{leveldb=Db,prefix=Prefix}) ->
     L=eleveldb_util:iterate_zxid_count(Db,Fun,Start,Prefix,Count),

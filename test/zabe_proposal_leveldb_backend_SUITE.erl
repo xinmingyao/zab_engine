@@ -51,7 +51,7 @@ groups() ->
     [].
 
 all() -> 
-    [put_get,get_last,fold,get_epoch_last_zxid].
+    [put_get,get_last,zxid_fold,get_epoch_last_zxid].
 
 put_get(Config) ->
     Zxid={1,1},
@@ -87,7 +87,7 @@ get_epoch_last_zxid(Config)->
     {ok,Z2}=zabe_proposal_leveldb_backend:get_epoch_last_zxid(10,[]),
     ok.
 
-fold(Config)->
+zxid_fold(Config)->
     Zxid={10,10},
     Txn=#transaction{zxid=Zxid,value=test},
     Proposal=#proposal{transaction=Txn},
@@ -100,15 +100,15 @@ fold(Config)->
     zabe_proposal_leveldb_backend:put_proposal(Zxid,Proposal,[]),
     zabe_proposal_leveldb_backend:put_proposal(Z2,Proposal2,[]),
     zabe_proposal_leveldb_backend:put_proposal(Z3,Proposal3,[]),
-    {ok,L2}=zabe_proposal_leveldb_backend:fold(fun({Key,_Value},Acc)->
-						       [Key|Acc] end,{20,20},[]),
+    {ok,{L2,_}}=zabe_proposal_leveldb_backend:fold(fun({Key,_Value},{Acc,Count})->
+						       {[Key|Acc],Count} end,{[],infinite},{20,20},[]),
     1=length(L2),
-    {ok,L3}=zabe_proposal_leveldb_backend:fold(fun({Key,_Value},Acc)->		
-				   [Key|Acc] end,{10,11},[]),
+    {ok,{L3,_}}=zabe_proposal_leveldb_backend:fold(fun({Key,_Value},{Acc,Count})->		
+				   {[Key|Acc],Count} end,{[],infinite},{10,11},[]),
     2=length(L3),
     ok.
 
-iterate_zxid_count(Config)->
+zxid_fold_count(Config)->
     Zxid={10,10},
     Txn=#transaction{zxid=Zxid,value=test},
     Proposal=#proposal{transaction=Txn},
@@ -127,10 +127,18 @@ iterate_zxid_count(Config)->
     zabe_proposal_leveldb_backend:put_proposal(Z2,Proposal2,[]),
     zabe_proposal_leveldb_backend:put_proposal(Z3,Proposal3,[]),
     zabe_proposal_leveldb_backend:put_proposal(Z4,Proposal4,[]),
-    {ok,L1}=zabe_proposal_leveldb_backend:iterate_zxid_count(fun({_K,V})->
-									V end,Zxid,2),
-    2=length(L1),
-    [Proposal,Proposal2]=L1,
-    {ok,[Proposal3,Proposal4]}=zabe_proposal_leveldb_backend:iterate_zxid_count(fun({_K,V})->
-								  V end,zabe_util:zxid_plus(Z2),2),
+%    {ok,L1}=zabe_proposal_leveldb_backend:iterate_zxid_count(fun({_K,V})->
+%									V end,Zxid,2),
+
+     {ok,{L3,_}}=zabe_proposal_leveldb_backend:fold(fun({Key,_Value},{Acc,Count})->		
+				   {[Key|Acc],Count-1} end,{[],2},Zxid,[]),
+    
+    2=length(L3),
+
+ %   [Proposal,Proposal2]=L1,
+    {ok,{[Proposal4,Proposal3],_}}=
+	zabe_proposal_leveldb_backend:fold(fun({_Key,Value},{Acc,Count})->		
+				   {[Value|Acc],Count-1} end,{[],2},zabe_util:zxid_plus(Z2),[]),
+    
+
     ok.
