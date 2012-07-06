@@ -251,7 +251,7 @@ wait_outof_election({timeout,_,wait_timeout},State=#state{manager_name=M,vote_ti
 	    {next_state,following,State}
     end;
 
-wait_outof_election(Vote=#vote{leader=_Leader,state=?LOOKING},State) ->
+wait_outof_election(Vote=#vote{leader=_Leader},State) ->
    % P1=get(?PROPOSED),
    % case total_order_predicate(Leader,Vote#vote.zxid,node(),P1#vote.zxid) of
    %	true->
