@@ -78,7 +78,7 @@ start_link(Election) ->
 %%                     {stop, StopReason}
 %% @end
 %%--------------------------------------------------------------------
-init([#election{parent=ManagerName,last_zxid=LastZxid,ensemble=Ensemble,quorum=Quorum,last_commit_zxid=LastCommitZxid}]) ->
+init([#election{logical_clock=LogicalClock,parent=ManagerName,last_zxid=LastZxid,ensemble=Ensemble,quorum=Quorum,last_commit_zxid=LastCommitZxid}]) ->
     lager:info("elect start"),
    % {Epoch,_TxnId}=LastZxid,
     LogicalClock=1,
