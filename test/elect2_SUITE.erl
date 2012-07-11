@@ -43,8 +43,10 @@ init_per_testcase(_,Config)->
     Config
     .
 
-end_per_testcase(Config)->
-
+end_per_testcase(_Config)->
+    erlang:exit(whereis(zabe_fast_leader_test),normal),
+    slave:stop('z1@localhost'),
+    slave:stop('z2@localhost'),
     ok.
 
 -define(HOST,'localhost').
@@ -55,26 +57,25 @@ all()->
 
 elect(Config)->
    % setup(),    
-    Nodes=[node(),'n1@localhost','n2@localhost'],
+    Nodes=[node(),'z1@localhost','z2@localhost'],
     Q=2,
     LastZxid={1,1},
     Ps=code:get_path(),
     Arg=lists:foldl(fun(A,Acc)->
 			    " -pa "++A++ Acc end, " ",Ps),
-    slave:start(?HOST,n1,Arg),
-    slave:start(?HOST,n2,Arg),
+    slave:start(?HOST,z1,Arg),
+    slave:start(?HOST,z2,Arg),
     setup(),
-    rpc:call('n1@localhost',zabe_fast_elect_SUITE,setup,[]),
-    rpc:call('n2@localhost',zabe_fast_elect_SUITE,setup,[]),
+    rpc:call('z1@localhost',zabe_fast_elect_SUITE,setup,[]),
+    rpc:call('z2@localhost',zabe_fast_elect_SUITE,setup,[]),
     zabe_fast_leader_test:start_link(LastZxid,Nodes,Q),
     
-    rpc:call('n1@localhost',zabe_fast_leader_test,start_link,[LastZxid,Nodes,Q]),
-    ct:sleep(800),
-    rpc:call('n2@localhost',zabe_fast_leader_test,start_link,[LastZxid,Nodes,Q]),
+    rpc:call('z1@localhost',zabe_fast_leader_test,start_link,[LastZxid,Nodes,Q]),
+    rpc:call('z2@localhost',zabe_fast_leader_test,start_link,[LastZxid,Nodes,Q]),
     ct:sleep(200),
     ?FOLLOWING=zabe_fast_leader_test:get_state(),
-    ?LEADING=rpc:call('n1@localhost',zabe_fast_leader_test,get_state,[]),
-    ?FOLLOWING=rpc:call('n2@localhost',zabe_fast_leader_test,get_state,[]),
+    ?LEADING=rpc:call('z2@localhost',zabe_fast_leader_test,get_state,[]),
+    ?FOLLOWING=rpc:call('z1@localhost',zabe_fast_leader_test,get_state,[]),
     ct:sleep(10).
 
     

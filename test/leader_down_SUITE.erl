@@ -15,8 +15,9 @@ init_per_suite(Config)->
 setup(Dir) ->
 %    error_logger:tty(false),
     application:load(lager), 
-    application:set_env(lager, handlers, [{lager_console_backend, info}
-					  ,{lager_file_backend,[{"/tmp/console.log",info,10485760,"$D0",5}]}
+
+    application:set_env(lager, handlers, [{lager_console_backend, error}
+					  ,{lager_file_backend,[{"/tmp/console.log",error,10485760,"$D0",5}]}
 					 ]),
     application:set_env(lager, error_logger_redirect, false),
     application:start(compiler),
@@ -48,7 +49,9 @@ Config
 
 end_per_testcase(_TestCase, Config) ->
   %  Pid=?config(pid,Config),
-  %  erlang:exit(Pid,normal),        
+  %  erlang:exit(Pid,normal),  
+    slave:stop('z1@localhost'),
+    slave:stop('z2@localhost'),      
     ok.
 
 -define(HOST,'localhost').
@@ -64,27 +67,19 @@ elect(Config)->
     Op1=[{proposal_dir,"/tmp/p1.db"}],
     Op2=[{proposal_dir,"/tmp/p2.db"}],
     Op3=[{proposal_dir,"/tmp/p3.db"}],
-    Nodes=[node(),'n1@localhost','n2@localhost'],
-
-    D1="/tmp/1.db",
-    D2="/tmp/2.db",
-    D3="/tmp/3.db",
-    Op1=[{proposal_dir,"/tmp/p1.db"}],
-    Op2=[{proposal_dir,"/tmp/p2.db"}],
-    Op3=[{proposal_dir,"/tmp/p3.db"}],
-    Nodes=[node(),'n1@localhost','n2@localhost'],
+    Nodes=[node(),'z1@localhost','z2@localhost'],
     Ps=code:get_path(),
     Arg=lists:foldl(fun(A,Acc)->
 			    " -pa "++A++ Acc end, " ",Ps),
-    slave:start(?HOST,n1,Arg),
-    slave:start(?HOST,n2,Arg),
+    slave:start(?HOST,z1,Arg),
+    slave:start(?HOST,z2,Arg),
     setup("/tmp/p1.db"),
-    ok=rpc:call('n1@localhost',zabe_learn_leveldb_SUITE,setup,["/tmp/p2.db"]),
-    ok=rpc:call('n2@localhost',zabe_learn_leveldb_SUITE,setup,["/tmp/p3.db"]),
+    ok=rpc:call('z1@localhost',?MODULE,setup,["/tmp/p2.db"]),
+    ok=rpc:call('z2@localhost',?MODULE,setup,["/tmp/p3.db"]),
     timer:sleep(500),
     {ok,_}=zabe_learn_leveldb:start_link(Nodes,Op1,D1),    
-    {ok,_}=rpc:call('n1@localhost',zabe_learn_leveldb,start_link,[Nodes,Op2,D2]), 
-    {ok,_}=rpc:call('n2@localhost',zabe_learn_leveldb,start_link,[Nodes,Op3,D3]),
+    {ok,_}=rpc:call('z1@localhost',zabe_learn_leveldb,start_link,[Nodes,Op2,D2]), 
+    {ok,_}=rpc:call('z2@localhost',zabe_learn_leveldb,start_link,[Nodes,Op3,D3]),
     timer:sleep(2000),
 
     Key="test1",
@@ -95,13 +90,14 @@ elect(Config)->
    % ok=zabe_learn_leveldb:put("k3","v3"),
     %{ok,Value}=zabe_learn_leveldb:get(Key),
 
-%    {ok,Value}=rpc:call('n2@localhost',zabe_learn_leveldb,get,[Key]),
-%    {ok,Value}=rpc:call('n1@localhost',zabe_learn_leveldb,get,[Key]),
-%   {ok,"v3"}=rpc:call('n1@localhost',zabe_learn_leveldb,get,["k3"]),
-    slave:stop('n2@localhost'),
+%    {ok,Value}=rpc:call('z2@localhost',zabe_learn_leveldb,get,[Key]),
+%    {ok,Value}=rpc:call('z1@localhost',zabe_learn_leveldb,get,[Key]),
+%   {ok,"v3"}=rpc:call('z1@localhost',zabe_learn_leveldb,get,["k3"]),
+    slave:stop('z2@localhost'),
     timer:sleep(2000),
     ok=zabe_learn_leveldb:put("k5","v5"),
     {ok,"v5"}=zabe_learn_leveldb:get("k5"),
+   
     ok
     .
 

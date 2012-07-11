@@ -29,7 +29,7 @@ end_per_testcase(Config)->
 
 
 all()->
-    [e_2_s,encode,decode].
+    [e_2_s,encode,encode_key,prefix_match,zxid_compare].
 
 encode_key(C)->
     "55123"=zabe_util:encode_key("123","55"),
@@ -37,7 +37,7 @@ encode_key(C)->
     "123"=zabe_util:decode_key("123",""),
     ok.
 
-prefxi_match(_C)->
+prefix_match(_C)->
     true=zabe_util:prefix_match("1230000","123"),
     false=zabe_util:prefix_match("1230000","1234"),
     false=zabe_util:prefix_match("","1234").

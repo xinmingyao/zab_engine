@@ -480,7 +480,6 @@ leader_recover(#server{mod = _Mod, state = _State,debug=_Debug,quorum=Quorum,ele
 	    if Z>=Quorum ->
 		    lager:info("leader recover change state to leading"),
 		    %%change epoch for handle old leader restart
-		    lager:error("~p LastZxid",[LastZxid]),
 		    Z1=zabe_util:change_leader_zxid(LastZxid),
 		    loop(Server#server{recover_acks=D1,mon_follow_refs=NRefs,last_zxid=Z1,last_commit_zxid=Z1},leading,ZabServerInfo);
 	       true->

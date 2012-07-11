@@ -16,8 +16,8 @@ init_per_suite(Config)->
 setup() ->
 %    error_logger:tty(false),
     application:load(lager), 
-    application:set_env(lager, handlers, [{lager_console_backend, info}
-					  ,{lager_file_backend,[{"/tmp/console.log",info,10485760,"$D0",5}]}
+    application:set_env(lager, handlers, [{lager_console_backend, error}
+					  ,{lager_file_backend,[{"/tmp/console.log",error,10485760,"$D0",5}]}
 					 ]),
     application:set_env(lager, error_logger_redirect, false),
     application:start(compiler),
@@ -40,7 +40,9 @@ init_per_testcase(_,Config)->
     .
 
 end_per_testcase(Config)->
-
+    catch erlang:exit(whereis(zabe_fast_leader_test),normal),
+    catch slave:stop('z1@localhost'),
+    catch slave:stop('z2@localhost'),
     ok.
 
 -define(HOST,'localhost').
@@ -51,25 +53,25 @@ all()->
 
 elect(Config)->
    % setup(),    
-    Nodes=[node(),'n1@localhost','n2@localhost'],
+    Nodes=[node(),'z1@localhost','z2@localhost'],
     Q=2,
     LastZxid={1,1},
     Ps=code:get_path(),
     Arg=lists:foldl(fun(A,Acc)->
 			    " -pa "++A++ Acc end, " ",Ps),
-    slave:start(?HOST,n1,Arg),
-    slave:start(?HOST,n2,Arg),
+    slave:start(?HOST,z1,Arg),
+    slave:start(?HOST,z2,Arg),
     setup(),
-    rpc:call('n1@localhost',zabe_fast_elect_SUITE,setup,[]),
-    rpc:call('n2@localhost',zabe_fast_elect_SUITE,setup,[]),
+    rpc:call('z1@localhost',zabe_fast_elect_SUITE,setup,[]),
+    rpc:call('z2@localhost',zabe_fast_elect_SUITE,setup,[]),
     zabe_fast_leader_test:start_link(LastZxid,Nodes,Q),
     
-    rpc:call('n1@localhost',zabe_fast_leader_test,start_link,[LastZxid,Nodes,Q]),
-    rpc:call('n2@localhost',zabe_fast_leader_test,start_link,[LastZxid,Nodes,Q]),
+    rpc:call('z1@localhost',zabe_fast_leader_test,start_link,[LastZxid,Nodes,Q]),
+    rpc:call('z2@localhost',zabe_fast_leader_test,start_link,[LastZxid,Nodes,Q]),
     ct:sleep(300),
     ?FOLLOWING=zabe_fast_leader_test:get_state(),
-    ?FOLLOWING=rpc:call('n1@localhost',zabe_fast_leader_test,get_state,[]),
-    ?LEADING=rpc:call('n2@localhost',zabe_fast_leader_test,get_state,[]),
+    ?FOLLOWING=rpc:call('z1@localhost',zabe_fast_leader_test,get_state,[]),
+    ?LEADING=rpc:call('z2@localhost',zabe_fast_leader_test,get_state,[]),
     ct:sleep(200).
 
     

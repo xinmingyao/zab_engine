@@ -48,8 +48,10 @@ Config
     .
 
 end_per_testcase(_TestCase, Config) ->
-  %  Pid=?config(pid,Config),
-  %  erlang:exit(Pid,normal),        
+
+    erlang:exit(whereis(zabe_learn_leveldb),normal),
+    slave:stop('n1@localhost'),
+    slave:stop('n2@localhost'),
     ok.
 
 -define(HOST,'localhost').
