@@ -37,11 +37,13 @@
           ensemble = []      :: [node()],
 	  last_zxid ::zxid(),
 	  quorum::non_neg_integer(),
-	  last_commit_zxid::zxid()
+	  last_commit_zxid::zxid(),
+	  logical_clock::integer()
          }).
 
 -record(msg,{cmd::cmd(),
-	     value::any()
+	     value::any(),
+	     epoch::integer()
 }).
 
 -record(transaction,{value::any(),zxid::zxid()}).

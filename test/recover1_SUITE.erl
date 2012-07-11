@@ -92,7 +92,7 @@ elect(Config)->
     {ok,_}=zabe_learn_leveldb:start_link(Nodes,Op1,D1),    
     
     {ok,_}=rpc:call('z2@localhost',zabe_learn_leveldb,start_link,[Nodes,Op3,D3]),
-    timer:sleep(1000),
+    timer:sleep(4000),
 
     Key="test1",
     Value="value1",

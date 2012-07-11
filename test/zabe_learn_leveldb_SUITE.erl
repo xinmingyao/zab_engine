@@ -16,8 +16,8 @@ init_per_suite(Config)->
 setup(Dir) ->
 %    error_logger:tty(false),
     application:load(lager), 
-    application:set_env(lager, handlers, [{lager_console_backend, info}
-					  ,{lager_file_backend,[{"/tmp/console.log",info,10485760,"$D0",5}]}
+    application:set_env(lager, handlers, [{lager_console_backend, error}
+					  ,{lager_file_backend,[{"/tmp/console.log",error,10485760,"$D0",5}]}
 					 ]),
     application:set_env(lager, error_logger_redirect, false),
     application:start(compiler),
@@ -89,7 +89,7 @@ elect(Config)-> D1="/tmp/1.db",
     {ok,_}=rpc:call('n1@localhost',zabe_learn_leveldb,start_link,[Nodes,Op2,D2]),
 
     {ok,_}=rpc:call('n2@localhost',zabe_learn_leveldb,start_link,[Nodes,Op3,D3]),
-    timer:sleep(2000),
+    timer:sleep(4000),
 
     Key="test1",
     Value="value1",

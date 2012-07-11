@@ -57,7 +57,7 @@ start_link(LastZxid,Ensemble,Quorum) ->
 %% @end
 %%--------------------------------------------------------------------
 init([LastZxid,Ensemble,Quorum]) ->
-    Election=#election{parent=?SERVER,last_zxid=LastZxid,ensemble=Ensemble,quorum=Quorum}, 
+    Election=#election{logical_clock=1,parent=?SERVER,last_zxid=LastZxid,ensemble=Ensemble,quorum=Quorum}, 
     {ok,Pid}=zabe_fast_elect:start_link(Election),
     {ok, #state{elect_pid=Pid}}.
 

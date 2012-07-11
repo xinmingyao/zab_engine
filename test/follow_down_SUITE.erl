@@ -96,6 +96,7 @@ elect(Config)->
     {ok,Value}=rpc:call('z1@localhost',zabe_learn_leveldb,get,[Key]),
      slave:stop('z1@localhost'),
     {ok,Value}=rpc:call('z3@localhost',zabe_learn_leveldb,get,[Key]),
+    ct:sleep(1000),
     {error,not_ready}=rpc:call('z3@localhost',zabe_learn_leveldb,put,[Key,Value]),
     slave:start(?HOST,z2,Arg),
     rpc:call('z2@localhost',?MODULE,setup,["/tmp/p2.db"]),

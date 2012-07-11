@@ -20,8 +20,8 @@ init_per_suite(Config)->
 setup() ->
 %    error_logger:tty(false),
     application:load(lager), 
-    application:set_env(lager, handlers, [{lager_console_backend, info}
-					  ,{lager_file_backend,[{"/tmp/console.log",info,10485760,"$D0",5}]}
+    application:set_env(lager, handlers, [{lager_console_backend,error}
+					  ,{lager_file_backend,[{"/tmp/console.log",error,10485760,"$D0",5}]}
 					 ]),
     application:set_env(lager, error_logger_redirect, false),
     application:start(compiler),
