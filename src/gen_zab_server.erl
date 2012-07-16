@@ -244,6 +244,7 @@ init_it(Starter, self, Name, Mod, {CandidateNodes, OptArgs, Arg}, Options) ->
             {CandidateNodes, OptArgs, Arg}, Options);
 init_it(Starter,Parent,Name,Mod,{CandidateNodes,OptArgs,Arg},Options) ->
 %    Interval    = proplists:get_value(heartbeat, OptArgs, ?TAU div 1000) * 1000,
+    lager:info("gen_zab_server start"),
     ElectMod        = proplists:get_value(elect_mod,      OptArgs,zabe_fast_elect),
     ProposalLogMod        = proplists:get_value(proposal_log_mod,      OptArgs,zabe_proposal_leveldb_backend),
     Debug       = debug_options(Name, Options),
@@ -302,13 +303,13 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 		    mon_leader_ref=_ModLeaderRef},ZabState,ZabServerInfo)->
     receive
 	Msg1->
-	    lager:info("zab state:~p receive msg:~p",[ZabState,Msg1]),
+	    lager:debug("zab state:~p receive msg:~p",[ZabState,Msg1]),
 	    case Msg1 of
 		{'DOWN',_ModLeaderRef,_,{_,Leader},_}->
 		    ets:delete_all_objects(Que),
 		    
 		    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
-		    lager:info("zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
+		    lager:debug("zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
 		    loop(Server#server{
 			    recover_acks=dict:new(),
 			    mon_follow_refs=dict:new(),
@@ -324,7 +325,7 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 		       ->loop(Server#server{mon_follow_refs=N1},ZabState,ZabServerInfo);
 		       true->
 			    ets:delete_all_objects(Que),
-			    lager:info("zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
+			    lager:debug("zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
 			    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
 			    M1={partition,less_quorum},
 			    abcast(Mod,lists:delete(node(),Ensemble),M1,Server#server.logical_clock),
@@ -357,7 +358,7 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 		    ets:delete_all_objects(Que),
 		    
 		    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
-		    lager:info("zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
+		    lager:debug("zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
 		    loop(Server#server{
 			    recover_acks=dict:new(),
 			    mon_follow_refs=dict:new(),
@@ -411,7 +412,7 @@ looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=EP
 	    
 	    %%monitor_follows(RecvVotes,Quorum),
 	    %%
-	    %lager:info("monitors ~p~p",[MonFollowRefs,RecvVotes]),
+	    %lager:debug("monitors ~p~p",[MonFollowRefs,RecvVotes]),
 	    
 	    N5=lists:foldl(fun(#vote{from=From},Acc)->
 
@@ -449,7 +450,7 @@ looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=EP
 		{'EXIT',_}->
 		    ets:delete_all_objects(Que),
 		    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
-		    lager:info("zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
+		    lager:debug("zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
 		    loop(Server#server{
 			    recover_acks=dict:new(),
 			    mon_follow_refs=dict:new(),
@@ -591,8 +592,8 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 		    % MinZxid = Pro#proposal.transaction#transaction.zxid,
                     case zabe_util:zxid_big_eq(Last,Min) of
 			true->		
-			   % lager:info("recover local~p",[ets:tab2list(Que)]),
-			   % lager:info(" recover local ~p ~p",[Last,MinZxid]),
+			   % lager:debug("recover local~p",[ets:tab2list(Que)]),
+			   % lager:debug(" recover local ~p ~p",[Last,MinZxid]),
 			    F=fun(P1)->
 				      Z1=P1#proposal_rec.proposal#proposal.transaction#transaction.zxid,
 				      ProposalLogMod:put_proposal(Z1,P1#proposal_rec.proposal,BackEndOpts),
@@ -662,7 +663,7 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 fold_all(Que,F,Last,Key,Acc)->
  case ets:lookup(Que,Key) of
      [P1|_]->
-	 lager:info("dfdfd~p",[zabe_util:zxid_big_eq(Last,Key)]),
+	 lager:debug("dfdfd~p",[zabe_util:zxid_big_eq(Last,Key)]),
 	 case zabe_util:zxid_big_eq(Last,Key) of
 	     true->
 		 ets:delete(Que,Key),
@@ -746,7 +747,7 @@ leading(#server{mod = Mod, state = State,
 	    case ets:lookup(Que,Zxid1) of
 		[]->
 		    
-		    %%maybe delay msg			    lager:info("1"),
+		    %%maybe delay msg			    lager:debug("1"),
 		    do_nothing,log,
 		    loop(Server,ZabState,ZabServerInfo);
 		[Pro|_]->
