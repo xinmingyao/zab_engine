@@ -113,7 +113,7 @@ all() ->
 
 gc(_Config) ->
     zabe_log_gc_db:start_link(),
-    zabe_log_gc_db:gc("aa",{1,100}),
+    zabe_log_gc_db:gc("aa",{0,0},{1,100}),
     timer:sleep(10),
     {ok,[Zxid|_]}=zabe_log_gc_db:get_last_gc_zxid("aa"),
     {1,100}=zabe_util:decode_zxid(zabe_util:decode_key(Zxid#log_gc.max,"aa")),

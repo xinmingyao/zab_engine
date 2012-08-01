@@ -25,7 +25,7 @@
 
 
 -export([put_proposal/3,get_proposal/2,get_last_proposal/1,fold/4,get_epoch_last_zxid/2]).
--export([delete_proposal/2]).
+-export([delete_proposal/2,gc/3]).
 
 
 
@@ -47,6 +47,9 @@ fold(Fun,Acc,Start,Opts)->
     gen_server:call(?SERVER,{fold,Fun,Acc,Start,Opts},infinity).
 get_epoch_last_zxid(Epoch,Opts)->
     gen_server:call(?SERVER,{get_epoch_last_zxid,Epoch,Opts}).
+
+gc(Min,Max,Opts)->
+    gen_server:cast(?SERVER,{gc,Min,Max,Opts}).
 
 
 
@@ -231,6 +234,13 @@ handle_call({fold,Fun,Acc,Start,Opts}, _From, State=#state{leveldb=Db}) ->
 %%                                  {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_cast({gc,Min,Max,Opts}, State=#state{leveldb=Db}) ->
+    Prefix = proplists:get_value(prefix,Opts,""),
+    zabe_log_gc_db:gc(Prefix,Min,Max),
+    eleveldb:gc(Db,Prefix,
+		zabe_util:encode_key(zabe_util:encode_zxid(Min),Prefix),
+		zabe_util:encode_key(zabe_util:encode_zxid(Max),Prefix)),
+    {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 

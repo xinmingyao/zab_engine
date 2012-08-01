@@ -27,7 +27,7 @@
 		logic_time::integer(),
 		gc_replys::dict:new()}).
 
--export([get_last_gc_zxid/1,gc/2]).
+-export([get_last_gc_zxid/1,gc/3]).
 
 -include("zabe_main.hrl").
 -include_lib("stdlib/include/qlc.hrl").
@@ -42,8 +42,8 @@
 get_last_gc_zxid(Prefix)->
     gen_server:call(?SERVER,{get_last_gc_zxid,Prefix}).
 
-gc(Prefix,MinLastZxid)->
-    gen_server:cast(?SERVER,{gc,Prefix,MinLastZxid}).
+gc(Prefix,MinZxid,MinLastZxid)->
+    gen_server:cast(?SERVER,{gc,Prefix,MinZxid,MinLastZxid}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -109,10 +109,10 @@ handle_call(_Request, _From, State) ->
     {reply, Reply, State}.
 
 
-handle_cast({gc,Prefix,MinCommitZxid}, State) ->
-    Min=zabe_util:min(Prefix),
+handle_cast({gc,Prefix,Min,MinCommitZxid}, State) ->
+   
     Last=zabe_util:encode_key(zabe_util:encode_zxid(MinCommitZxid),Prefix),
-    Rec=#log_gc{prefix=Prefix,min=Min,max=Last},
+    Rec=#log_gc{prefix=Prefix,min=zabe_util:encode_key(zabe_util:encode_zxid(Min),Prefix),max=Last},
     mnesia:transaction(fun()->mnesia:write(Rec) end),
     {noreply, State};
 handle_cast(_Msg, State) ->

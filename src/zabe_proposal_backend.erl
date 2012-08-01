@@ -20,9 +20,10 @@
     {ok,Zxid::zxid()}.
 -callback fold(Fun::fun(),StartZxid::zxid(),Opts::[])->
     ok.
--callback get_range_proposal(StartZxid::zxid,Range::integer(),Opts::[])->
-    {ok,Proposals::[#proposal{}]}.
 
--callback iterate_zxid_count(Fun::fun(),Start::zxid(),Count::integer)->
+-callback delete_proposal(Key::zxid(),Opts::[])->
+    ok|{error,Reason::any()}.
+
+-callback gc(GcMinZxid::zxid(),GcMaxZxid::zxid(),Opts::[])->
     ok.
   

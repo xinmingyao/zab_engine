@@ -58,6 +58,15 @@
 -record(zab_server_info,{leader,zab_state}).
 
 -record(proposal_rec,{zxid::zxid(),proposal::#proposal{},acks::list(),commit::boolean()}).
+-record(log_gc,{prefix::string,min::zxid(),max::zxid()}).
+
+-record(gc_req,{from}).
+-record(gc_reply,{from,last_commit_zxid,time}).
+
+
+
+
+
 
 
 
