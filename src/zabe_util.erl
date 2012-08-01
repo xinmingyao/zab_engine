@@ -7,6 +7,8 @@
 
 -export([zxid_big_eq/2,change_leader_zxid/1,select_ets/3]).
 
+-export([min/1]).
+
 
 -include("zabe_main.hrl").
 
@@ -86,4 +88,5 @@ e_2_s(S,L) when length(S) < L ->
 e_2_s(_,_) ->
     exit(epoch_errror).
 
-
+min(Pre)->
+    Pre++epoch_to_string(0)++txn_to_string(0).
