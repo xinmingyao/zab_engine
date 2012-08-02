@@ -61,7 +61,7 @@
 -record(log_gc,{prefix::string,min::zxid(),max::zxid()}).
 
 -record(gc_req,{from}).
--record(gc_reply,{from,last_commit_zxid,time}).
+-record(gc_reply,{from,last_commit_log_zxid::zxid(),time::integer()}).
 
 
 
