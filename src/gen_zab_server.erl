@@ -42,17 +42,16 @@
 -compile([{parse_transform, lager_transform}]).
 
 -include("zabe_main.hrl").
--type option() :: {'workers',    Workers::[node()]}
+-type option() :: {'gc_by_zab_log_count',integer()}
                 | {'proposal_dir',     Dir::string()}
-                | {'heartbeat',  Seconds::integer()}.
+		| {'prefix',    string()}
+                | {'memory_db',  boolean()}.
 
 -type options() :: [option()].
-%% A locally registered name
 -type name() :: atom().
 -type server_ref() :: name() | {name(),node()} | {global,name()} | pid().
-%% See gen_server.
 -type caller_ref() :: {pid(), reference()}.
-%% Opaque state of the gen_leader behaviour.
+%% Opaque state of zab_engine behaviour.
 
 -type opts()::[{prefix,V::any()}].
 -record(server, {
@@ -81,7 +80,9 @@
 	  gc_by_zab_log_count::integer(),
 	  zab_log_count_time::integer(),
 	  gc_replys::dict:new(),
-	  last_gc_log_zxid::integer()
+	  last_gc_log_zxid::zxid(),
+	  memory_db::boolean(),
+	  last_snapshot_zxid::zxid()
          }).
 
 %%% ---------------------------------------------------
@@ -264,24 +265,38 @@ init_it(Starter,Parent,Name,Mod,{CandidateNodes,OptArgs,Arg},Options) ->
             exit(Reason);
 	 {ok, State,LastCommitZxid}->
 	     do_ok(Starter,CandidateNodes,LastCommitZxid,Mod,Parent,State,
-		   LastCommitZxid,LastCommitZxid,OptArgs,debug_options(Name, Options));
-        {ok, State,LastCommitZxid,LastGcLogZxid} ->
-	     do_ok(Starter,CandidateNodes,LastCommitZxid,Mod,Parent,State,
-		   LastCommitZxid,LastGcLogZxid,OptArgs,debug_options(Name,Options))
-            ;
+		   LastCommitZxid,OptArgs,debug_options(Name, Options));
+       % {ok, State,LastCommitZxid,LastGcLogZxid} ->
+       %	     do_ok(Starter,CandidateNodes,LastCommitZxid,Mod,Parent,State,
+       %		   LastCommitZxid,LastGcLogZxid,OptArgs,debug_options(Name,Options),true)
+       %     ;
         Else ->
 	     Error = {init_bad_return_value, Else},
 	     proc_lib:init_ack(Starter, {error, Error}),
 	     exit(Error)
     end.
 
-do_ok(Starter,CandidateNodes,LastCommitZxid,Mod,Parent,State,LastCommitZxid,LastGcLogZxid,OptArgs,Debug)->
+do_ok(Starter,CandidateNodes,LastCommitZxid,Mod,Parent,State,LastCommitZxid,OptArgs,Debug)->
     ElectMod        = proplists:get_value(elect_mod,      OptArgs,zabe_fast_elect),
     ProposalLogMod        = proplists:get_value(proposal_log_mod,      OptArgs,zabe_proposal_leveldb_backend),
     Prefix = proplists:get_value(prefix,OptArgs,""),
     GcByZabLogCount = proplists:get_value(gc_by_zab_log_count,OptArgs,0),
+    IsMemoryDb= proplists:get_value(is_memory_db,OptArgs,false),
     BackEndOpts=[{prefix,Prefix}],
+    LastGcLogZxid=
+	case catch zabe_log_gc_db:get_last_gc_zxid(Prefix) of
+	     {ok,[#log_gc{max=T1}]}->
+		     T1;
+		  _->
+		     {0,0}
+	     end,
     proc_lib:init_ack(Starter, {ok, self()}),
+    LastSnapshotZxid= case IsMemoryDb of
+			  true->
+			      LastCommitZxid;
+			  false->
+			      {0,0}
+		      end,
     Ensemble=CandidateNodes,
 	     Quorum=ordsets:size(Ensemble) div  2  +1,
 	     LastZxid= case ProposalLogMod:get_last_proposal(BackEndOpts) of
@@ -305,6 +320,8 @@ do_ok(Starter,CandidateNodes,LastCommitZxid,Mod,Parent,State,LastCommitZxid,Last
 			  gc_replys=dict:new(),
 			  gc_by_zab_log_count=GcByZabLogCount,
 			  last_gc_log_zxid=LastGcLogZxid,    
+			  memory_db=IsMemoryDb,
+			  last_snapshot_zxid=LastSnapshotZxid,
 				  debug = Debug,quorum=Quorum,proposal_que=Que},looking,#zab_server_info{}
 			 ).
 %%% ---------------------------------------------------
@@ -319,11 +336,25 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 		    gc_replys=GcReplys,
 		    back_end_opts=BackEndOpts,
 		    proposal_log_mod=ProposalLogMod,
+		    state=State,
 		    mon_leader_ref=_ModLeaderRef},ZabState,ZabServerInfo)->
     receive
 	Msg1->
 	    lager:debug("zab state:~p receive msg:~p",[ZabState,Msg1]),
 	    case Msg1 of
+		{zab_system,snapshot}->
+		    case Server#server.memory_db of
+			true->
+			    case Mod:do_snapshot(LastZxid,State) of
+				{ok,N1}->
+				    loop(Server#server{last_snapshot_zxid=LastZxid,state=N1},ZabState,ZabServerInfo);
+				_->
+				    lager:error("~p :zab snapshot error",[]),
+				    loop(Server,ZabState,ZabServerInfo)
+			    end;
+			false->
+			    loop(Server,ZabState,ZabServerInfo)
+		    end;
 		{zab_system,gc}->
 		    GcReq=#gc_req{from=node()},
 		    abcast(Mod,lists:delete(node(),Ensemble),GcReq,Server#server.logical_clock),
@@ -391,34 +422,34 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 		#msg{value=Rep=#gc_reply{from=ReplyFrom}}->
 		    G2=dict:store(ReplyFrom,Rep,GcReplys),
 		    T1=dict:size(G2),
-		    
-		    LastGcLog=Server#server.last_gc_log_zxid,
-		    Temp=if T1=:=length(Ensemble)-1 ->
-			    LastCommit=dict:fold(fun({_K,#gc_reply{last_commit_log_zxid=Zxid}},Acc)->
+		    LogLast=case Server#server.memory_db of
+				true->Server#server.last_snapshot_zxid;
+				false->Server#server.last_commit_zxid end,
+		    Temp=
+			if T1=:=length(Ensemble)-1 ->
+				LastCommit=dict:fold(fun(_K,#gc_reply{last_commit_log_zxid=Zxid},Acc)->
 							 T=zabe_util:zxid_big(Zxid,Acc),
-							 if 
-							     T->
-								 Zxid;
-							     true->Acc
-							 end end
-						 ,{0,0},G2),
-			    MyLastLogCommit=Server#server.last_gc_log_zxid,
-			    C=zabe_util:zxid_big(MyLastLogCommit,LastCommit),
-			    My2=if C->
-				    MyLastLogCommit;
-			       true->
-				    LastCommit
-			    end,
-			    case My2 of
-				{0,0}->My2;
-				_->ProposalLogMod:gc({0,0},LastCommit,BackEndOpts),
-				   My2
-			    end;
-		       true->LastGcLog
-		    end,
-		    loop(Server#server{last_gc_log_zxid=Temp},ZabState,ZabServerInfo);
+							     if 
+								 T->
+								     Acc;
+								 true->Zxid
+							     end end
+						     ,LogLast,G2),
+				
+				case LastCommit of
+				    {0,0}->Server#server.last_gc_log_zxid;
+				    _->
+					ProposalLogMod:gc({0,0},LastCommit,BackEndOpts),
+					LastCommit
+				end;
+			   true->Server#server.last_gc_log_zxid
+			end,
+		    loop(Server#server{last_gc_log_zxid=Temp,gc_replys=G2},ZabState,ZabServerInfo);
 		#msg{value=#gc_req{from=GcFrom}}->
-		    MyLastLogCommit=Server#server.last_gc_log_zxid,
+		    MyLastLogCommit=case Server#server.memory_db of
+					true->Server#server.last_snapshot_zxid;
+					false->
+					    Server#server.last_commit_zxid end,
 		    GcRep=#gc_reply{from=node(),last_commit_log_zxid=MyLastLogCommit,time=get_timestamp()},
 		    send_zab_msg({Mod,GcFrom},GcRep,Server#server.logical_clock),
 		    loop(Server,ZabState,ZabServerInfo);
