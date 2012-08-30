@@ -133,7 +133,7 @@ handle_info(M=#gc_reply{from=From},State=#state{prefix=Prefix,nodes=Nodes,gc_rep
     if T1=:=length(Nodes) ->
 	   
 	    Min=zabe_util:min(Prefix),
-	    LastCommit=dict:fold(fun({_K,#gc_reply{last_commit_zxid=Zxid}},Acc)->
+	    LastCommit=dict:fold(fun({_K,#gc_reply{last_commit_log_zxid=Zxid}},Acc)->
 					 T=zabe_util:zxid_big(Zxid,Acc),
 					 if 
 					     T->

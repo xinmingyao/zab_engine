@@ -32,7 +32,7 @@
 -include("zabe_main.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 
-
+-compile([{parse_transform, lager_transform}]).
 
 %%%===================================================================
 %%% API
@@ -110,7 +110,6 @@ handle_call(_Request, _From, State) ->
 
 
 handle_cast({gc,Prefix,Min,MinCommitZxid}, State) ->
-   
     Last=zabe_util:encode_key(zabe_util:encode_zxid(MinCommitZxid),Prefix),
     Rec=#log_gc{prefix=Prefix,min=zabe_util:encode_key(zabe_util:encode_zxid(Min),Prefix),max=Last},
     mnesia:transaction(fun()->mnesia:write(Rec) end),
