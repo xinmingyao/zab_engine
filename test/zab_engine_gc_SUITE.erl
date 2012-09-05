@@ -94,7 +94,21 @@ gc(Config)->
     rpc:call('z1@localhost',zabe_learn_leveldb,put,[Key,Value]),
     
     timer:sleep(500),
-    {ok,[_Zxid]}=rpc:call('z1@localhost',zabe_log_gc_db,get_last_gc_zxid,[Pre]),
+    {ok,[Zxid1]}=rpc:call('z1@localhost',zabe_log_gc_db,get_last_gc_zxid,[Pre]),
+    error_logger:info_msg("~p~n",[Zxid1]),
+    rpc:call('z1@localhost',zabe_learn_leveldb,put,[Key,Value]),
+    rpc:call('z1@localhost',zabe_learn_leveldb,put,[Key,Value]),
+    rpc:call('z1@localhost',zabe_learn_leveldb,put,[Key,Value]),
+    rpc:call('z1@localhost',zabe_learn_leveldb,put,[Key,Value]),
+    rpc:call('z1@localhost',zabe_learn_leveldb,put,[Key,Value]),
+    {ok,[Zxid2]}=rpc:call('z1@localhost',zabe_log_gc_db,get_last_gc_zxid,[Pre]),
+    error_logger:info_msg("~p~n",[Zxid2]),
+    GZ=Zxid1#log_gc.max,
+    Z=zabe_util:decode_key(GZ,Pre),
+    Z2=zabe_util:decode_zxid(Z),
+    timer:sleep(100),
+    T1=rpc:call('z1@localhost',zabe_proposal_leveldb_backend,get_proposal,[Z2,[{prefix,Pre}]]),
+    error_logger:info_msg("~p~n",[T1]),
     ok
     .
 
