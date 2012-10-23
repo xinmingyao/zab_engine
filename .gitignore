@@ -1,0 +1,10 @@
+*.beam
+ct_run*
+vari*
+*.dump
+*.log
+*.css
+*.*~
+deps
+logs
+ebin
