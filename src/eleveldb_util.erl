@@ -10,9 +10,9 @@
 
 zxid_fold(Ref,Fun,Acc,Start,Prefix)->
 
-    Key=zabe_util:encode_key(zabe_util:encode_zxid(Start),Prefix),
+    Key=zabe_zxid:encode_key(Prefix,Start),
     fold(Ref,
-	      Fun,Acc,[],Prefix,list_to_binary(Key),itera_end).
+	      Fun,Acc,[],Prefix,Key,itera_end).
 
 
 
@@ -40,18 +40,20 @@ fold_loop({ok, K, V}, Itr, Fun, Acc0,Prefix,EndFun) ->
 	false->
 	    Acc0;
 	true->
-	    K1=zabe_util:decode_zxid(zabe_util:decode_key(binary_to_list(K),Prefix)),
+	    {ok,_,K1}=zabe_zxid:decode_key(K),
 	    Acc = Fun({K1, binary_to_term(V)},Acc0),
 	   % io:format("~p ~p ~n",[K1,Acc]),
 	    fold_loop(eleveldb:iterator_move(Itr, next), Itr, Fun, Acc,Prefix,EndFun)
     end.
 
 itera_end(K,Prefix)->
-    K1=binary_to_list(K),
-    P=zabe_util:prefix_match(K1,Prefix),
-    Len=length(K1)-length(Prefix),
-    (P andalso Len==30) %todo fix magic number
-        .
+    case zabe_zxid:decode_key(K) of
+	{ok,Prefix,_}->
+	    true;
+	_->
+	    false
+    end.
+
 	
 
  

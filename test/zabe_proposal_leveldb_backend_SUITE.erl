@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @author  <>
+%%% @author  <yaoxinming@gmail.com>
 %%% @copyright (C) 2012, 
 %%% @doc
 %%%
@@ -22,7 +22,7 @@ init_per_suite(Config) ->
     Config
 .
 
-end_per_suite(Config) ->
+end_per_suite(_Config) ->
 
     ok.
 
@@ -36,7 +36,7 @@ end_per_group(_GroupName, _Config) ->
 init_per_testcase(_TestCase, Config) ->
     os:cmd("rm -rf /tmp/proposal.bb"),
     timer:sleep(2),
-    {ok,Pid}=zabe_proposal_leveldb_backend:start_link("/tmp/proposal.bb",[{prefix,"100"}]),
+    {ok,Pid}=zabe_proposal_leveldb_backend:start_link("/tmp/proposal.bb",[{prefix,1}]),
     [{pid,Pid}|Config]
 
 
@@ -53,7 +53,7 @@ groups() ->
 all() -> 
     [put_get,get_last,zxid_fold,get_epoch_last_zxid].
 
-put_get(Config) ->
+put_get(_Config) ->
     Zxid={1,1},
     Txn=#transaction{zxid=Zxid,value=test},
     Proposal=#proposal{transaction=Txn},
@@ -61,7 +61,7 @@ put_get(Config) ->
     {ok,Proposal}=zabe_proposal_leveldb_backend:get_proposal(Zxid,[]),
     ok.
 
-get_last(Config)->
+get_last(_Config)->
     Zxid={10,10},
     Txn=#transaction{zxid=Zxid,value=test},
     Proposal=#proposal{transaction=Txn},
@@ -71,7 +71,7 @@ get_last(Config)->
     {ok,Last}=zabe_proposal_leveldb_backend:get_last_proposal([]),
     Z2=Last,
     ok.
-get_epoch_last_zxid(Config)->
+get_epoch_last_zxid(_Config)->
     Zxid={10,10},
     Txn=#transaction{zxid=Zxid,value=test},
     Proposal=#proposal{transaction=Txn},
@@ -87,7 +87,7 @@ get_epoch_last_zxid(Config)->
     {ok,Z2}=zabe_proposal_leveldb_backend:get_epoch_last_zxid(10,[]),
     ok.
 
-zxid_fold(Config)->
+zxid_fold(_Config)->
     Zxid={10,10},
     Txn=#transaction{zxid=Zxid,value=test},
     Proposal=#proposal{transaction=Txn},
@@ -108,7 +108,14 @@ zxid_fold(Config)->
     2=length(L3),
     ok.
 
-zxid_fold_count(Config)->
+gc(_Conf)->
+    Gc={10,20},
+    timer:sleep(5),
+    zabe_proposal_leveldb_backend:gc(Gc,[]),
+    {ok,_,Gc}=zabe_proposal_leveldb_backend:get_gc([]),
+    ok
+	.
+zxid_fold_count(_Config)->
     Zxid={10,10},
     Txn=#transaction{zxid=Zxid,value=test},
     Proposal=#proposal{transaction=Txn},

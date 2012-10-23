@@ -21,11 +21,11 @@
 -compile([{parse_transform, lager_transform}]).
 
 -record(state, {leveldb}).
--define(MAX_PROPOSAL,"999999999999999999999999999999").
+
 
 
 -export([put_proposal/3,get_proposal/2,get_last_proposal/1,fold/4,get_epoch_last_zxid/2]).
--export([delete_proposal/2,gc/3]).
+-export([delete_proposal/2,gc/2,get_gc/1]).
 
 
 
@@ -48,9 +48,11 @@ fold(Fun,Acc,Start,Opts)->
 get_epoch_last_zxid(Epoch,Opts)->
     gen_server:call(?SERVER,{get_epoch_last_zxid,Epoch,Opts}).
 
-gc(Min,Max,Opts)->
-    gen_server:cast(?SERVER,{gc,Min,Max,Opts}).
+gc(Max,Opts)->
+    gen_server:cast(?SERVER,{gc,Max,Opts}).
 
+get_gc(Opts)->
+    gen_server:call(?SERVER,{get_gc,Opts}).
 
 
 %%--------------------------------------------------------------------
@@ -80,28 +82,29 @@ start_link(Dir,Opts) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
--define(INIT_MAX,<<"zzzzzzzzzzzzzzzzzzz">>).
+
 
 
 init([Dir,_Opts]) ->    
    % WorkDir="/home/erlang/tmp/proposal.bb",
-   % Prefix        = proplists:get_value(prefix,Opts,""),
+   % Bucket        = proplists:get_value(bucket,Opts,""),
    % eleveldb:repair(Dir,[]),
-    case eleveldb:open(Dir, [{create_if_missing, true},{max_open_files,50}]) of
+    case eleveldb:open(Dir, [{create_if_missing, true},{max_open_files,50},{comparator,zab}]) of
         {ok, Ref} ->
 	    lager:info("zab engine start db on log dir ~p ok",[Dir]),
-	    
-	    case eleveldb:get(Ref,?INIT_MAX,[]) of
-		not_found->
-		    eleveldb:put(Ref,?INIT_MAX,?INIT_MAX,[]);
-                {error,Reason}->
-		    lager:info("erorr ~p",[Reason]);
-		_->
-		    ok
-            end ,
+	    %%the bigest key in db ,other else leveldb iterator to Max Key will error
+	    K1= zabe_zxid:max_key(255),
+	    case eleveldb:get(Ref,K1,[]) of
+	     	not_found->
+	    	    eleveldb:put(Ref,K1,K1,[]);
+                 {error,Reason}->
+	    	    lager:info("erorr ~p",[Reason]);
+	    	_->
+	    	    ok
+             end ,
 	    {ok, #state { leveldb = Ref}};
 	{error, Reason} ->
-	    lager:info("zab engine start db on log dir ~p error:",[Reason]),
+	    lager:error("zab engine start db on log dir ~p error:",[Reason]),
 	    {error, Reason}
     end.
 
@@ -122,21 +125,17 @@ init([Dir,_Opts]) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_call({put_proposal,Zxid,Proposal,Opts}, _From, State=#state{leveldb=Db}) ->
-%    {_Epoch,TxnId}=Zxid,
-    Prefix = proplists:get_value(prefix,Opts,""),
-    Key=zabe_util:encode_key(zabe_util:encode_zxid(Zxid),Prefix),
-     case eleveldb:put(Db,list_to_binary(Key),erlang:term_to_binary(Proposal),[]) of
+    Bucket = proplists:get_value(bucket,Opts,1),
+    case eleveldb:put(Db,zabe_zxid:encode_key(Bucket,Zxid),erlang:term_to_binary(Proposal),[]) of
 	ok->
 	    {reply, ok, State};
 	{error,Reason} ->
 	    {reply, {error,Reason}, State}
     end;
 handle_call({get_proposal,Zxid,Opts}, _From, State=#state{leveldb=Db}) ->
-   % {_Epoch,TxnId}=Zxid,
-   % Key=integer_to_list(TxnId),
-    Prefix = proplists:get_value(prefix,Opts,""),
-    Key=zabe_util:encode_key(zabe_util:encode_zxid(Zxid),Prefix),
-    case eleveldb:get(Db,list_to_binary(Key),[]) of
+  
+    Bucket = proplists:get_value(bucket,Opts,1),
+    case eleveldb:get(Db,zabe_zxid:encode_key(Bucket,Zxid),[]) of
 	{ok,Value}->
 	    {reply,{ok,erlang:binary_to_term(Value)}, State};
 	not_found->
@@ -146,11 +145,8 @@ handle_call({get_proposal,Zxid,Opts}, _From, State=#state{leveldb=Db}) ->
     end;
 
 handle_call({delete_proposal,Zxid,Opts}, _From, State=#state{leveldb=Db}) ->
-   % {_Epoch,TxnId}=Zxid,
-   % Key=integer_to_list(TxnId),
-    Prefix = proplists:get_value(prefix,Opts,""),
-    Key=zabe_util:encode_key(zabe_util:encode_zxid(Zxid),Prefix),
-    case eleveldb:delete(Db,list_to_binary(Key),[]) of
+    Bucket = proplists:get_value(bucket,Opts,1),
+    case eleveldb:delete(Db,zabe_zxid:encode_key(Bucket,Zxid),[]) of
 	ok->
 	    {reply,ok, State};
 	{error,Reason} ->
@@ -158,12 +154,9 @@ handle_call({delete_proposal,Zxid,Opts}, _From, State=#state{leveldb=Db}) ->
     end;
 
 handle_call({get_last_proposal,Opts}, _From, State=#state{leveldb=Db}) ->
-    Prefix = proplists:get_value(prefix,Opts,""),
+    Bucket = proplists:get_value(bucket,Opts,1),
     {ok,Itr}=eleveldb:iterator(Db,[]),
-%    Max= zabe_util:encode_key(?MAX_PROPOSAL,Prefix),
-    Max=zabe_util:encode_zxid({999999999,1}),
-    K1=list_to_binary(zabe_util:encode_key(Max,Prefix)),
-   
+    K1=zabe_zxid:max_key(Bucket),   
     Zxid= case eleveldb:iterator_move(Itr,K1) of
 	      {error,invalid_iterator}->
 		  not_found;
@@ -176,23 +169,23 @@ handle_call({get_last_proposal,Opts}, _From, State=#state{leveldb=Db}) ->
 		     {error,iterator_closed}->
 			 not_found;
 		     {ok,Key1,_}->
-			 case zabe_util:prefix_match(Key1,Prefix) of
-			     true->
-				 zabe_util:decode_zxid(zabe_util:decode_key(binary_to_list(Key1),Prefix));
-			     false ->
+			  
+			  case zabe_zxid:decode_key(Key1) of
+			      {ok,Bucket,Z}->
+				  Z;
+			      _ ->
 				 not_found
 			 end
 		 end
 	 end
-	    
     ,
-
     {reply,{ok,Zxid},State};
 handle_call({get_epoch_last_zxid,Epoch,Opts}, _From, State=#state{leveldb=Db}) ->
-    Prefix = proplists:get_value(prefix,Opts,""),
+    Bucket = proplists:get_value(bucket,Opts,1),
     {ok,Itr}=eleveldb:iterator(Db,[]),
-    Start=zabe_util:encode_zxid({Epoch+1,0}),
-    Zxid=case eleveldb:iterator_move(Itr,list_to_binary(zabe_util:encode_key(Start,Prefix))) of
+    %look up epoch+1 and previous key is the last key of epoch
+    Start={Epoch+1,0},
+    Zxid=case eleveldb:iterator_move(Itr,zabe_zxid:encode_key(Bucket,Start)) of
 	     {error,invalid_iterator}->
 		 not_found;
 	     {error,iterator_closed}->
@@ -204,27 +197,40 @@ handle_call({get_epoch_last_zxid,Epoch,Opts}, _From, State=#state{leveldb=Db}) -
 		     {error,iterator_closed}->
 			 not_found;
 		     {ok,Key,_}->
-			 case zabe_util:prefix_match(Key,Prefix) of
-			     true->
-				 zabe_util:decode_zxid(zabe_util:decode_key(binary_to_list(Key),Prefix));
-			     false ->
+			  case zabe_zxid:decode_key(Key) of
+			      {ok,Bucket,Z}->
+				  Z;
+			      _ ->
 				 not_found
 			 end
+
 		 end
 	 end,
     {reply,{ok,Zxid},State};
 
+handle_call({get_gc,Opts}, _From, State=#state{leveldb=Db}) ->
+    Bucket = proplists:get_value(bucket,Opts,1),
+    GcKey=zabe_zxid:gc_key(Bucket),
+    case eleveldb:get(Db,GcKey,[]) of
+	{ok,Value}->
+	    {reply,zabe_zxid:decode_key(Value), State};
+	not_found->
+	    {reply,not_found, State};
+	{error,Reason} ->
+	    {reply, {error,Reason}, State}
+    end;
+
 handle_call({fold,Fun,Acc,Start,Opts}, _From, State=#state{leveldb=Db}) ->
-        Prefix = proplists:get_value(prefix,Opts,""),
+        Bucket = proplists:get_value(bucket,Opts,1),
 %    L=eleveldb:fold(Db,
 %		       Fun,
-%		       [], [{first_key, list_to_binary(zabe_util:encode_key(zabe_util:encode_zxid(Start),Prefix))}]),
-    L=eleveldb_util:zxid_fold(Db,Fun,Acc,Start,Prefix),
+%		       [], [{first_key, list_to_binary(zabe_util:encode_key(zabe_util:encode_zxid(Start),Bucket))}]),
+    L=eleveldb_util:zxid_fold(Db,Fun,Acc,Start,Bucket),
     {reply,{ok,L},State}.
 
 
 
-%%--------------------------------------------------------------------
+%%--------------------------------------------------------------------GcKey=zabe_zxid:gc_key(Bucket),
 %% @private
 %% @doc
 %% Handling cast messages
@@ -234,12 +240,11 @@ handle_call({fold,Fun,Acc,Start,Opts}, _From, State=#state{leveldb=Db}) ->
 %%                                  {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_cast({gc,Min,Max,Opts}, State=#state{leveldb=Db}) ->
-    Prefix = proplists:get_value(prefix,Opts,""),
-    zabe_log_gc_db:gc(Prefix,Min,Max),
-    eleveldb:gc(Db,Prefix,
-		zabe_util:encode_key(zabe_util:encode_zxid(Min),Prefix),
-		zabe_util:encode_key(zabe_util:encode_zxid(Max),Prefix)),
+handle_cast({gc,Max,Opts}, State=#state{leveldb=Db}) ->
+    Bucket = proplists:get_value(bucket,Opts,1),
+    GcKey=zabe_zxid:gc_key(Bucket),
+    GcValue=zabe_zxid:encode_key(Bucket,Max),
+    eleveldb:put(Db,GcKey,GcValue,[]),	
     {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.

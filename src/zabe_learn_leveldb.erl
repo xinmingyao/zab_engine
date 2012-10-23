@@ -62,8 +62,6 @@ start_link(Nodes,Opts,DbDir) ->
 %% @end
 %%--------------------------------------------------------------------
 init([WorkDir]) ->    
-    %%WorkDir="/home/erlang/tmp/proposal.bb",
-
     case eleveldb:open(WorkDir, [{create_if_missing, true},{max_open_files,50}]) of
         {ok, Ref} ->
 	    lager:info("open db on:~p ok",[WorkDir]),

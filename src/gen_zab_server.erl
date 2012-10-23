@@ -44,7 +44,7 @@
 -include("zabe_main.hrl").
 -type option() :: {'gc_by_zab_log_count',integer()}
                 | {'proposal_dir',     Dir::string()}
-		| {'prefix',    string()}
+		| {'bucket',    non_neg_integer()} %bucket >=1 (and <2^8 or <2^40)  
                 | {'memory_db',  boolean()}.
 
 -type options() :: [option()].
@@ -53,7 +53,7 @@
 -type caller_ref() :: {pid(), reference()}.
 %% Opaque state of zab_engine behaviour.
 
--type opts()::[{prefix,V::any()}].
+-type opts()::[{bucket,V::any()}].
 -record(server, {
           parent,
           mod,
@@ -279,13 +279,14 @@ init_it(Starter,Parent,Name,Mod,{CandidateNodes,OptArgs,Arg},Options) ->
 do_ok(Starter,CandidateNodes,LastCommitZxid,Mod,Parent,State,LastCommitZxid,OptArgs,Debug)->
     ElectMod        = proplists:get_value(elect_mod,      OptArgs,zabe_fast_elect),
     ProposalLogMod        = proplists:get_value(proposal_log_mod,      OptArgs,zabe_proposal_leveldb_backend),
-    Prefix = proplists:get_value(prefix,OptArgs,""),
+    Bucket = proplists:get_value(bucket,OptArgs,1),
+    
     GcByZabLogCount = proplists:get_value(gc_by_zab_log_count,OptArgs,0),
     IsMemoryDb= proplists:get_value(is_memory_db,OptArgs,false),
-    BackEndOpts=[{prefix,Prefix}],
+    BackEndOpts=[{bucket,Bucket}],
     LastGcLogZxid=
-	case catch zabe_log_gc_db:get_last_gc_zxid(Prefix) of
-	     {ok,[#log_gc{max=T1}]}->
+	case catch ProposalLogMod:get_gc(BackEndOpts) of
+	     {ok,_,T1}->
 		     T1;
 		  _->
 		     {0,0}
@@ -439,7 +440,7 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 				case LastCommit of
 				    {0,0}->Server#server.last_gc_log_zxid;
 				    _->
-					ProposalLogMod:gc({0,0},LastCommit,BackEndOpts),
+					ProposalLogMod:gc(LastCommit,BackEndOpts),
 					LastCommit
 				end;
 			   true->Server#server.last_gc_log_zxid

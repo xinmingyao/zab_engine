@@ -39,7 +39,7 @@
 
 -define(WAIT_TIMEOUT,500).
 -define(PROPOSED,proposed).
--define(VOTE_TIMER,2800).
+-define(VOTE_TIMER,300).
 
 
 
@@ -184,25 +184,27 @@ looking1(Vote=#vote{from=_From,leader=Leader,state=PeerState,epoch=PeerEpoch}, S
 			    V1=P1#vote{leader=Vote#vote.leader,zxid=Vote#vote.zxid,epoch=PeerEpoch},
 
 			    send_notifications(V1,Ensemble,ManagerName),
-			    
+
 			    put(?PROPOSED,V1);
 			false->
-			       
+			    send_peer_notification(P1,Vote#vote.from,ManagerName),
 			    ok
 			    
 		    end
 			
 	    end,
+	    ets:insert(State#state.recv_votes,Vote),
 	    RecvVote=State#state.recv_votes,
-	    ets:insert(RecvVote,Vote),
+
 	    
-	    ReceiveAll=ets:info(RecvVote,size) == ordsets:size(Ensemble),
-	    HaveQuorm=is_have_quorm(State#state.quorum,Vote,RecvVote),
+	   % ReceiveAll=ets:info(RecvVote,size) == ordsets:size(Ensemble),
+	    ReceiveAll=is_all_agree(ordsets:size(Ensemble),P1,RecvVote),
+	    HaveQuorm=is_have_quorm(State#state.quorum,P1,RecvVote),
 	    if ReceiveAll ->
-		   
 		    notify_manager(ManagerName,ets:tab2list(RecvVote)),
 		    throw(finish);
 	       HaveQuorm->
+
 		    %wait after select
 		    TimeRef=gen_fsm:start_timer(?WAIT_TIMEOUT,wait_timeout),
 		    
@@ -222,7 +224,6 @@ looking1(Vote=#vote{from=_From,leader=Leader,state=PeerState,epoch=PeerEpoch}, S
 		    CheckLeader=check_leader(R2,Vote#vote.leader,node()),
 		    if Vote#vote.state ==?LEADING orelse (CheckLeader andalso HaveQuorm)->
 			    put(?PROPOSED,Vote#vote{from=node()}),
-			    
 			    notify_manager(ManagerName,ets:tab2list(State#state.recv_votes)),
 			    throw(finish);
 		       true ->
@@ -238,7 +239,6 @@ looking1(Vote=#vote{from=_From,leader=Leader,state=PeerState,epoch=PeerEpoch}, S
 			   % V1=P1#vote{epoch=PeerEpoch},
 			   % put(?PROPOSED,V1),
 			    put(?PROPOSED,Vote#vote{from=node()}),
-			    
 			    notify_manager(ManagerName,ets:tab2list(State#state.recv_votes)),
 			    ets:delete_all_objects(State#state.recv_votes),%??
 			    throw(finish)
@@ -252,7 +252,7 @@ looking1(Vote=#vote{from=_From,leader=Leader,state=PeerState,epoch=PeerEpoch}, S
     .
 
 wait_outof_election({timeout,_,wait_timeout},State=#state{manager_name=M})->
-
+    
     notify_manager(M,ets:tab2list(State#state.recv_votes)),
     V=get(?PROPOSED),
     case V#vote.leader of
@@ -262,18 +262,18 @@ wait_outof_election({timeout,_,wait_timeout},State=#state{manager_name=M})->
 	    {next_state,following,State}
     end;
 
-wait_outof_election(Vote=#vote{leader=_Leader},State) ->
-   % P1=get(?PROPOSED),
-   % case total_order_predicate(Leader,Vote#vote.zxid,node(),P1#vote.zxid) of
-   %	true->
+wait_outof_election(Vote=#vote{leader=Leader},State) ->
+    P1=get(?PROPOSED),
+    case total_order_predicate(Leader,Vote#vote.zxid,P1#vote.leader,P1#vote.zxid) of
+   	true->
 	    %send to myself
 	    gen_fsm:cancel_timer(State#state.wait_outof_timer),
 	    gen_fsm:send_event_after(1,Vote),
-	    {next_state, looking, State}
-%	_->
+	    {next_state, looking, State};
+	_->
 	    %TimeRef=gen_fsm:start_timer(?WAIT_TIMEOUT,wait_timeout),
-%	    {next_state,wait_outof_election, State}
-%    end.
+	    {next_state,wait_outof_election, State}
+    end
 	;
 wait_outof_election(send_notifications,State=#state{ensemble=Ensemble,manager_name=ManagerName})->
     V=get(?PROPOSED),
@@ -335,6 +335,19 @@ following(_,State) ->
     %flush msg
     {next_state,following,State}.
 
+is_all_agree(Size,Proposed,RecvVote)->
+    C1=ets:foldl(
+      fun(Vote,Count)->
+		 Eq=is_eq(Vote,Proposed),
+		 if
+		     Eq-> Count+1;
+		     true -> Count  
+		 end end ,0,RecvVote),
+    if C1 =:=Size->
+	    true;
+       true ->
+	    false
+    end.
 is_have_quorm(Q,Proposed,RecvVote)->
     C1=ets:foldl(
       fun(Vote,Count)->
@@ -456,6 +469,11 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+send_peer_notification(V,N,ManagerName)->
+    lager:debug("broadcast send ~p ~p ~p ",[V,ManagerName, self()]),
+    Msg=#msg{cmd=?VOTE_CMD,value=V},
+    catch erlang:send({ManagerName,N},Msg).
+
 send_notifications(V=#vote{},Ensemble,ManagerName)->
     lager:debug("broadcast send ~p ~p ~p ",[V,ManagerName, self()]),
     Msg=#msg{cmd=?VOTE_CMD,value=V},
@@ -470,7 +488,7 @@ total_order_predicate(New,NewZxid,Cur,CurZxid)->
     (NewZxid>CurZxid) orelse ((NewZxid==CurZxid) andalso (New>Cur)).
 notify_manager(ManagerName,RecvVotes) ->
     V=get(?PROPOSED),
-    lager:debug("elect1 ~p~n",[V]),
+    lager:info("elect result vote is: ~p~n",[V]),
     catch erlang:send(ManagerName,#msg{cmd=?ZAB_CMD,value={elect_reply,{ok,V,RecvVotes}}}).
 
 check_leader(_Votes,Leader,Leader) ->
