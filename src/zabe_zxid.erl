@@ -1,4 +1,6 @@
 -module(zabe_zxid).
+-compile([export_all]).
+
 
 -ifdef(BUCKET64).
 -define(BUCKET_LENGTH,64).
