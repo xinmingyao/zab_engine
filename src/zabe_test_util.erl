@@ -5,11 +5,11 @@
 -define(HOST,'localhost').
 -define(NODES,['n1@localhost','n2@localhost','n3@localhost']).
 
-
+-define(TEST_DIR,"/tmp/").
 get_node_name()->
     N=atom_to_list(node()),
     {match,[_,{S1,E1}]}= re:run(N,"[^@](.*)@.*",[]),
-    "/tmp/"++string:substr(N,S1,E1+1).
+    ?TEST_DIR++string:substr(N,S1,E1+1).
 get_db()->	
     get_node_name()++".db".
 get_log()->
@@ -73,3 +73,4 @@ get_code_path()->
     Ps=code:get_path(),
     lists:foldl(fun(A,Acc)->
 			    " -pa "++A++ Acc end, " ",Ps).
+    
