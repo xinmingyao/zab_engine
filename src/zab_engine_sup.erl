@@ -32,15 +32,10 @@ init([]) ->
 		    {zabe_proposal_leveldb_backend, start_link,
 		     [ProposalDir,[]]},
 		       permanent, 5000, worker, [propsal_back_end]},
-    GcDb = {log_gc_db,
-		    {zabe_log_gc_db, start_link,
-		     []},
-		       permanent, 5000, worker, [gc_db]},
-
     
     % Build the process list...
     Processes = lists:flatten([
-			       ProposalBackEnd,GcDb
+			       ProposalBackEnd
 			       
     ]),    
     % Run the proesses...
