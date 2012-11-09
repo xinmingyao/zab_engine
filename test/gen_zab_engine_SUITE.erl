@@ -52,7 +52,7 @@ gc(_C)->
     rpc:call('n1@localhost',zabe_learn_leveldb,put,[Key,Value]),
     {ok,_,Zxid2}=rpc:call('n1@localhost',zabe_proposal_leveldb_backend,get_gc,[[{bucket,1}]]),
     true = zabe_util:zxid_big(Zxid2,Zxid1).
-
+  
 normal(_C)->
     zabe_test_util:stop(),
     zabe_test_util:start_slave(n1),

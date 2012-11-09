@@ -35,10 +35,10 @@ end_per_group(_GroupName, _Config) ->
 
 init_per_testcase(_TestCase, Config) ->
     os:cmd("rm -rf /tmp/proposal.bb"),
-    timer:sleep(2),
+    timer:sleep(2), 
     {ok,Pid}=zabe_proposal_leveldb_backend:start_link("/tmp/proposal.bb",[{prefix,1}]),
+%    {ok,Pid}=zabe_proposal_leveldb_backend:start_link("/home/erlang/opensource/tiger/dev/dev2/Proposal",[{prefix,1}]),
     [{pid,Pid}|Config]
-
 
     .
 
@@ -91,7 +91,7 @@ zxid_fold(_Config)->
     Zxid={10,10},
     Txn=#transaction{zxid=Zxid,value=test},
     Proposal=#proposal{transaction=Txn},
-    Z2={10,11},
+    Z2={10,21},
     Txn2=#transaction{zxid=Z2,value=test},
     Proposal2=#proposal{transaction=Txn2},
     Z3={20,20},
@@ -104,8 +104,25 @@ zxid_fold(_Config)->
 						       {[Key|Acc],Count} end,{[],infinite},{20,20},[]),
     1=length(L2),
     {ok,{L3,_}}=zabe_proposal_leveldb_backend:fold(fun({Key,_Value},{Acc,Count})->		
-				   {[Key|Acc],Count} end,{[],infinite},{10,11},[]),
-    2=length(L3),
+				   {[Key|Acc],Count-1} end,{[],3},{10,10},[]),
+    3=length(L3),
+    L3=[Z3,Z2,Zxid],
+    ok.
+
+put(254) ->
+    ok;
+put(N)->
+    Z={1,N},
+    Txn=#transaction{zxid=Z,value=test},
+    Proposal=#proposal{transaction=Txn},
+    zabe_proposal_leveldb_backend:put_proposal(Z,Proposal,[]),
+    put(N-1).
+%% test leveldb zxid encode decode relate for byte endian
+zxid_f2(_Config)->   
+    put(257),
+    {ok,_}=zabe_proposal_leveldb_backend:get_proposal({1,256},[]),
+    {ok,{L3,_}}=zabe_proposal_leveldb_backend:fold(fun({Key,_Value},{Acc,Count})->{[Key|Acc],Count-1} end,{[],3},{1,1},[]),
+    [{1,257},{1,256},{1,255}]=L3,
     ok.
 
 gc(_Conf)->

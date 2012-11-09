@@ -20,16 +20,16 @@
 			ZabKey::zab_key().
 encode_key(Bucket,Zxid={Epoch,TxnId})->
 %    error_logger:info_msg("~p ~p 111111111111~n",[Bucket,Zxid]),
-    <<Bucket:?BUCKET_LENGTH,
-      Epoch:?EPOCH,
-      TxnId:?TXN_ID>>
+    <<Bucket:?BUCKET_LENGTH/little,
+      Epoch:?EPOCH/little,
+      TxnId:?TXN_ID/little>>
           .
 -spec decode_key(Bin::binary())->
 			{ok,Bucket::integer(),Zxid::zxid()}.
 decode_key(Bin)->    
-    <<Bucket:?BUCKET_LENGTH,
-      Epoch:?EPOCH,
-      TxnId:?TXN_ID>> =Bin,
+    <<Bucket:?BUCKET_LENGTH/little,
+      Epoch:?EPOCH/little,
+      TxnId:?TXN_ID/little>> =Bin,
     {ok,Bucket,{Epoch,TxnId}}.
 
 max_key(Bucket)->
