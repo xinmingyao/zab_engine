@@ -89,7 +89,11 @@ init([Dir,_Opts]) ->
    % WorkDir="/home/erlang/tmp/proposal.bb",
    % Bucket        = proplists:get_value(bucket,Opts,""),
    % eleveldb:repair(Dir,[]),
-    case eleveldb:open(Dir, [{create_if_missing, true},{max_open_files,50},{comparator,zab}]) of
+    case eleveldb:open(Dir, [{create_if_missing, true},{max_open_files,50},
+			     {comparator,zab,
+			     %"/tmp/22"
+			      filename:join(Dir,"gc_db")
+			     }]) of
         {ok, Ref} ->
 	    lager:info("zab engine start db on log dir ~p ok",[Dir]),
 	    %%the bigest key in db ,other else leveldb iterator to Max Key will error
@@ -211,7 +215,7 @@ handle_call({get_epoch_last_zxid,Epoch,Opts}, _From, State=#state{leveldb=Db}) -
 handle_call({get_gc,Opts}, _From, State=#state{leveldb=Db}) ->
     Bucket = proplists:get_value(bucket,Opts,1),
     GcKey=zabe_zxid:gc_key(Bucket),
-    case eleveldb:get(Db,GcKey,[]) of
+    case eleveldb:get_gc(Db,GcKey,[]) of
 	{ok,Value}->
 	    {reply,zabe_zxid:decode_key(Value), State};
 	not_found->
@@ -244,7 +248,7 @@ handle_cast({gc,Max,Opts}, State=#state{leveldb=Db}) ->
     Bucket = proplists:get_value(bucket,Opts,1),
     GcKey=zabe_zxid:gc_key(Bucket),
     GcValue=zabe_zxid:encode_key(Bucket,Max),
-    eleveldb:put(Db,GcKey,GcValue,[]),	
+    eleveldb:put_gc(Db,GcKey,GcValue,[]),	
     {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.

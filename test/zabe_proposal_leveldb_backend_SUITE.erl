@@ -35,6 +35,7 @@ end_per_group(_GroupName, _Config) ->
 
 init_per_testcase(_TestCase, Config) ->
     os:cmd("rm -rf /tmp/proposal.bb"),
+    os:cmd("mkdir /tmp/proposal.bb"),
     timer:sleep(2), 
     {ok,Pid}=zabe_proposal_leveldb_backend:start_link("/tmp/proposal.bb",[{prefix,1}]),
 %    {ok,Pid}=zabe_proposal_leveldb_backend:start_link("/home/erlang/opensource/tiger/dev/dev2/Proposal",[{prefix,1}]),

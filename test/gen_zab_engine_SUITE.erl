@@ -99,7 +99,7 @@ follow_down_up(_Config)->
     zabe_test_util:start_slave(n1),
     zabe_test_util:start_slave(n2),
     zabe_test_util:start_slave(n3),
-    timer:sleep(4000),
+    timer:sleep(5000),
     Key="test1",
     Value="value1",
     ok=rpc:call('n1@localhost',zabe_learn_leveldb,put,[Key,Value]),

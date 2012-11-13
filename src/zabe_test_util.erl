@@ -26,7 +26,8 @@ start(Opts)->
     Zab=get_zab(),
     Db=get_db(),
 
-    os:cmd("rm -f "++ Zab),
+    os:cmd("rm -rf "++ Zab),
+    os:cmd("mkdir "++Zab),
     os:cmd("rm -f "++ Db),
     
     start_lager(),
