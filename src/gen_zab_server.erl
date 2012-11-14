@@ -669,11 +669,12 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 		    lager:info("follow recover ok,state to followiing"),
 		    loop(Server,following,ZabServerInfo);
 		[] when QueSize>0-> %recover local
-
+		    
 		    F=fun(P1)->
-				      Z1=P1#proposal_rec.proposal#proposal.transaction#transaction.zxid,
-				      ProposalLogMod:put_proposal(Z1,P1#proposal_rec.proposal,BackEndOpts),
-				      Mod:handle_commit(P1#proposal_rec.proposal,Z1,State,ZabServerInfo),
+			      Pp=P1#proposal_rec.proposal,
+			      Z1=Pp#proposal.transaction#transaction.zxid,
+			      ProposalLogMod:put_proposal(Z1,Pp,BackEndOpts),
+			      Mod:handle_commit(Pp#proposal.transaction#transaction.value,Z1,State,ZabServerInfo),
 							 Z1
 						  end,
 			   % NewZxid=fold_all(Que,F,Last),
@@ -696,9 +697,10 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 			   % lager:debug("recover local~p",[ets:tab2list(Que)]),
 			   % lager:debug(" recover local ~p ~p",[Last,MinZxid]),
 			    F=fun(P1)->
-				      Z1=P1#proposal_rec.proposal#proposal.transaction#transaction.zxid,
-				      ProposalLogMod:put_proposal(Z1,P1#proposal_rec.proposal,BackEndOpts),
-				      Mod:handle_commit(P1#proposal_rec.proposal,Z1,State,ZabServerInfo),
+				      Pp=P1#proposal_rec.proposal,
+				      Z1=Pp#proposal.transaction#transaction.zxid,
+				      ProposalLogMod:put_proposal(Z1,Pp,BackEndOpts),
+				      Mod:handle_commit(Pp#proposal.transaction#transaction.value,Z1,State,ZabServerInfo),
 							 Z1
 						  end,
 			   % NewZxid=fold_all(Que,F,Last),
@@ -753,8 +755,12 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 	    ets:insert(Que,#proposal_rec{zxid=Zxid1,proposal=Msg,commit=false}),
 	    loop(Server,ZabState,ZabServerInfo);
 	#zab_commit{msg=Zxid1}->
-	    [P1|_]=ets:lookup(Que,Zxid1),
-	    ets:insert(Que,P1#proposal_rec{commit=true}),
+	    case  ets:lookup(Que,Zxid1) of
+		[P1|_]->
+		    ets:insert(Que,P1#proposal_rec{commit=true});
+		[]-> %maybe handle_commit on recover
+		    do_nothing
+	    end,		    
 	    loop(Server,ZabState,ZabServerInfo);
 	_ -> %flush msg %todo save proposal msg into que
 	    loop(Server,ZabState,ZabServerInfo) 
@@ -819,11 +825,15 @@ following(#server{mod = Mod, state = State,
 	    send_zab_msg({Mod,Leader},#zab_ack{msg=Ack},Server#server.logical_clock),
 	    loop(Server#server{last_zxid=Zxid1,zab_log_count=N2Count,zab_log_count_time=NTime},ZabState,ZabServerInfo);
 	#zab_commit{msg=Zxid1}->
-	    {ok,Proposal}=ProposalLogMod:get_proposal(Zxid1,BackEndOpts),
-	    Txn=Proposal#proposal.transaction,
-	    {ok,_,Ns}=Mod:handle_commit(Txn#transaction.value,Zxid1,State,ZabServerInfo),
+	     case ProposalLogMod:get_proposal(Zxid1,BackEndOpts) of
+		 {ok,Proposal}-> 
+		     Txn=Proposal#proposal.transaction,
+		     {ok,_,Ns}=Mod:handle_commit(Txn#transaction.value,Zxid1,State,ZabServerInfo),
+		     loop(Server#server{state=Ns,last_commit_zxid=Zxid1},ZabState,ZabServerInfo);
+		 _-> %maybe commit in recover,ignore
+		     loop(Server,ZabState,ZabServerInfo)
+	     end;
 	    
-	    loop(Server#server{state=Ns,last_commit_zxid=Zxid1},ZabState,ZabServerInfo);
 	_ ->
 	    loop(Server,ZabState,ZabServerInfo)
 
