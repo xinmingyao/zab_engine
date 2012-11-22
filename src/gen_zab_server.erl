@@ -82,7 +82,8 @@
 	  gc_replys::dict:new(),
 	  last_gc_log_zxid::zxid(),
 	  memory_db::boolean(),
-	  last_snapshot_zxid::zxid()
+	  last_snapshot_zxid::zxid(),
+	  recover_msg_size::non_neg_integer()
          }).
 
 %%% ---------------------------------------------------
@@ -250,7 +251,7 @@ init_it(Starter, self, Name, Mod, {CandidateNodes, OptArgs, Arg}, Options) ->
             {CandidateNodes, OptArgs, Arg}, Options);
 init_it(Starter,Parent,Name,Mod,{CandidateNodes,OptArgs,Arg},Options) ->
 %    Interval    = proplists:get_value(heartbeat, OptArgs, ?TAU div 1000) * 1000,
-    lager:info("gen_zab_server start"),
+    lager:notice("#####begin start#####"),
     
 %    ProposalDir =proplists:get_value(proposal_dir,OptArgs,"/tmp/p1.ldb"),
      case Mod:init(Arg)  of
@@ -291,6 +292,7 @@ do_ok(Starter,CandidateNodes,LastCommitZxid,Mod,Parent,State,LastCommitZxid,OptA
 		  _->
 		     {0,0}
 	     end,
+    RecoverMsgSize=proplists:get_value(recover_msg_size,OptArgs,100),
     proc_lib:init_ack(Starter, {ok, self()}),
     LastSnapshotZxid= case IsMemoryDb of
 			  true->
@@ -313,6 +315,7 @@ do_ok(Starter,CandidateNodes,LastCommitZxid,Mod,Parent,State,LastCommitZxid,OptA
 				  ensemble=Ensemble,
 				  last_commit_zxid=LastCommitZxid,
 			          recover_acks=dict:new(),
+			  recover_msg_size=RecoverMsgSize,
 			  mon_follow_refs=dict:new(),
 			  back_end_opts=BackEndOpts,
 				  state = State,last_zxid=LastZxid,current_zxid=LastZxid,proposal_log_mod=ProposalLogMod,
@@ -375,7 +378,7 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 		{'DOWN',_ModLeaderRef,_,{_,Leader},_}->
 		    ets:delete_all_objects(Que),
 		    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
-		    lager:info("zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
+		    lager:notice("##leader:~p down zxid:~p,commit zxid:~p,change state~p to looking##",[Leader,LastZxid,LastCommitZxid,ZabState]),
 		    loop(Server#server{
 			    recover_acks=dict:new(),
 			    mon_follow_refs=dict:new(),
@@ -392,7 +395,8 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 		       ->loop(Server#server{mon_follow_refs=N1},ZabState,ZabServerInfo);
 		       true->
 			    ets:delete_all_objects(Que),
-			    lager:info("zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
+			    lager:notice("##lose quorum:~p,zxid:~p,commit zxid:~p,change state~p to looking##",
+					 [dict:to_list(N1),LastZxid,LastCommitZxid,ZabState]),
 			    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
 			    M1={partition,less_quorum},
 			    abcast(Mod,lists:delete(node(),Ensemble),M1,Server#server.logical_clock),
@@ -459,7 +463,7 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 		    ets:delete_all_objects(Que),
 		    
 		    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
-		    lager:info("zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
+		    lager:notice("##begin re-elect ,zxid:~p,commit zxid:~p,change state~p to looking##",[LastZxid,LastCommitZxid,ZabState]),
 		    loop(Server#server{
 			    recover_acks=dict:new(),
 			    mon_follow_refs=dict:new(),
@@ -503,9 +507,9 @@ looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=EP
 		true -> LastCommitZxid;
 		false->{ok,{T,_}}=ProposalLogMod:fold(fun({_Key,P1},{_LastCommit,Count})->
 					   
-					   Mod:handle_commit(P1#proposal.transaction#transaction.value,
-							     P1#proposal.transaction#transaction.zxid,State,ZabServerInfo) ,
-						   {P1#proposal.transaction#transaction.zxid,Count}
+					   Mod:handle_commit(P1#p.transaction#t.value,
+							     P1#p.transaction#t.zxid,State,ZabServerInfo) ,
+						   {P1#p.transaction#t.zxid,Count}
 					   end,
 						 {LastCommitZxid,infinite},LastCommitZxid,BackEndOpts),
 		       T
@@ -551,7 +555,7 @@ looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=EP
 		{'EXIT',_}->
 		    ets:delete_all_objects(Que),
 		    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
-		    lager:info("zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
+		    lager:notice("##leader down re-elect,zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
 		    loop(Server#server{
 			    recover_acks=dict:new(),
 			    mon_follow_refs=dict:new(),
@@ -610,7 +614,7 @@ leader_recover(#server{mod = _Mod, state = _State,debug=_Debug,quorum=Quorum,ele
 	    end,
 	    Z=dict:size(D1)+1,
 	    if Z>=Quorum ->
-		    lager:info("leader recover change state to leading"),
+		    lager:notice("##leader recover change state to leading##"),
 		    %%change epoch for handle old leader restart
 		    Z1=zabe_util:change_leader_zxid(LastZxid),
 		    loop(Server#server{recover_acks=D1,mon_follow_refs=NRefs,last_zxid=Z1,last_commit_zxid=Z1},leading,ZabServerInfo);
@@ -634,7 +638,7 @@ leader_recover(#server{mod = _Mod, state = _State,debug=_Debug,quorum=Quorum,ele
 	    
 	    {ok,{Res,_}}=
 		ProposalLogMod:fold(fun({_Key,Value},{Acc,Count})->		
-							   {[Value|Acc],Count-1} end,{[],100},StartZxid,BackEndOpts),
+							   {[Value|Acc],Count-1} end,{[],Server#server.recover_msg_size},StartZxid,BackEndOpts),
     
 	    M1={recover_ack,lists:reverse(Res),CurZxid},
 	    
@@ -655,10 +659,10 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
     case Msg1 of
 	{recover_ack,Proposals,_LeaderCurrentZxid} ->
 	    Last=lists:foldl(fun(Proposal,_)->
-			      ProposalLogMod:put_proposal(Proposal#proposal.transaction#transaction.zxid,Proposal,BackEndOpts),
-			      Mod:handle_commit(Proposal#proposal.transaction#transaction.value,
-						Proposal#proposal.transaction#transaction.zxid,State,ZabServerInfo),
-				Proposal#proposal.transaction#transaction.zxid
+			      ProposalLogMod:put_proposal(Proposal#p.transaction#t.zxid,Proposal,BackEndOpts),
+			      Mod:handle_commit(Proposal#p.transaction#t.value,
+						Proposal#p.transaction#t.zxid,State,ZabServerInfo),
+				Proposal#p.transaction#t.zxid
 		      end ,LastZxid,Proposals),
 	    QueSize=ets:info(Que,size),
 	   
@@ -666,54 +670,54 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 		[] when QueSize=:=0->
 		    M1={recover_ok,{Mod,node()}},
 		    send_zab_msg({Mod,Leader},M1,Server#server.logical_clock),
-		    lager:info("follow recover ok,state to followiing"),
-		    loop(Server,following,ZabServerInfo);
+		    lager:notice("##follow recover ok,state to followiing##"),
+		    loop(Server#server{last_zxid=Last,last_commit_zxid=Last},following,ZabServerInfo);
 		[] when QueSize>0-> %recover local
 		    
 		    F=fun(P1)->
 			      Pp=P1#proposal_rec.proposal,
-			      Z1=Pp#proposal.transaction#transaction.zxid,
+			      Z1=Pp#p.transaction#t.zxid,
 			      ProposalLogMod:put_proposal(Z1,Pp,BackEndOpts),
-			      Mod:handle_commit(Pp#proposal.transaction#transaction.value,Z1,State,ZabServerInfo),
+			      Mod:handle_commit(Pp#p.transaction#t.value,Z1,State,ZabServerInfo),
 							 Z1
 						  end,
 			   % NewZxid=fold_all(Que,F,Last),
 		    NewZxid=fold_all(Que,F,Last,ets:first(Que),LastZxid),
-		    lager:info("follow recover local ok,state to followiing"),
+		    lager:notice("##follow recover local ok,state to followiing##"),
 		    loop(Server#server{last_zxid=NewZxid,last_commit_zxid=NewZxid},following,ZabServerInfo)    
 			;
 
 		_ when QueSize=:=0->
 		    M1={recover_req,{Mod,node()},zabe_util:zxid_plus(Last)},
 			    send_zab_msg({Mod,Leader},M1,Server#server.logical_clock),
-		    loop(Server,ZabState,ZabServerInfo);
+		    loop(Server#server{last_zxid=Last,last_commit_zxid=Last},ZabState,ZabServerInfo);
 		_ when QueSize>0 ->
 		    Min=ets:first(Que),
 		   % [M2|_]=ets:lookup(Que,Min),
 		   % Pro=M2#proposal_rec.proposal,
-		    % MinZxid = Pro#proposal.transaction#transaction.zxid,
+		    % MinZxid = Pro#p.transaction#t.zxid,
                     case zabe_util:zxid_big_eq(Last,Min) of
 			true->		
 			   % lager:debug("recover local~p",[ets:tab2list(Que)]),
 			   % lager:debug(" recover local ~p ~p",[Last,MinZxid]),
 			    F=fun(P1)->
 				      Pp=P1#proposal_rec.proposal,
-				      Z1=Pp#proposal.transaction#transaction.zxid,
+				      Z1=Pp#p.transaction#t.zxid,
 				      ProposalLogMod:put_proposal(Z1,Pp,BackEndOpts),
-				      Mod:handle_commit(Pp#proposal.transaction#transaction.value,Z1,State,ZabServerInfo),
+				      Mod:handle_commit(Pp#p.transaction#t.value,Z1,State,ZabServerInfo),
 							 Z1
 						  end,
 			   % NewZxid=fold_all(Que,F,Last),
-			    NewZxid=fold_all(Que,F,Last,Min,LastZxid),
+			    NewZxid=fold_all(Que,F,Last,Min,Last),
 			    %ets:delete_all_objects(Que),
-			    lager:info("follow recover ok,state to followiing"),
+			    lager:notice("##follow recover ok,state to followiing##"),
 			    loop(Server#server{last_zxid=NewZxid,last_commit_zxid=NewZxid},following,ZabServerInfo)    
 				;
 			false ->
 			    
 			    M1={recover_req,{Mod,node()},zabe_util:zxid_plus(Last)},
 			    send_zab_msg({Mod,Leader},M1,Server#server.logical_clock),
-			    loop(Server,ZabState,ZabServerInfo)
+			    loop(Server#server{last_zxid=Last,last_commit_zxid=Last},ZabState,ZabServerInfo)
 		    end
 	    end
 		;
@@ -738,9 +742,9 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 
 	    {ok,{_T,_}}=ProposalLogMod:fold(fun({_Key,P1},{_LastCommit,Count})->
 						   
-						   Mod:handle_commit(P1#proposal.transaction#transaction.value,
-								     P1#proposal.transaction#transaction.zxid,State,ZabServerInfo) ,
-						   {P1#proposal.transaction#transaction.zxid,Count}
+						   Mod:handle_commit(P1#p.transaction#t.value,
+								     P1#p.transaction#t.zxid,State,ZabServerInfo) ,
+						   {P1#p.transaction#t.zxid,Count}
 					   end,
 					   {LastCommitZxid,infinite},LastCommitZxid,BackEndOpts),
 	    
@@ -751,7 +755,7 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 	    send_zab_msg({Mod,Leader},M1,Server#server.logical_clock),
 	    loop(Server#server{last_zxid=MZxid,last_commit_zxid=MZxid},ZabState,ZabServerInfo);
 	#zab_req{msg=Msg}->
-	    Zxid1=Msg#proposal.transaction#transaction.zxid,
+	    Zxid1=Msg#p.transaction#t.zxid,
 	    ets:insert(Que,#proposal_rec{zxid=Zxid1,proposal=Msg,commit=false}),
 	    loop(Server,ZabState,ZabServerInfo);
 	#zab_commit{msg=Zxid1}->
@@ -805,7 +809,7 @@ following(#server{mod = Mod, state = State,
 	    loop(Server,ZabState,ZabServerInfo)
 		;
 	#zab_req{msg=Msg}->
-	    Zxid1=Msg#proposal.transaction#transaction.zxid,
+	    Zxid1=Msg#p.transaction#t.zxid,
 	    ok=ProposalLogMod:put_proposal(Zxid1,Msg,BackEndOpts),
 	    NTime=if ZabLogCount=:=0
 		-> get_timestamp();
@@ -827,8 +831,8 @@ following(#server{mod = Mod, state = State,
 	#zab_commit{msg=Zxid1}->
 	     case ProposalLogMod:get_proposal(Zxid1,BackEndOpts) of
 		 {ok,Proposal}-> 
-		     Txn=Proposal#proposal.transaction,
-		     {ok,_,Ns}=Mod:handle_commit(Txn#transaction.value,Zxid1,State,ZabServerInfo),
+		     Txn=Proposal#p.transaction,
+		     {ok,_,Ns}=Mod:handle_commit(Txn#t.value,Zxid1,State,ZabServerInfo),
 		     loop(Server#server{state=Ns,last_commit_zxid=Zxid1},ZabState,ZabServerInfo);
 		 _-> %maybe commit in recover,ignore
 		     loop(Server,ZabState,ZabServerInfo)
@@ -859,9 +863,9 @@ leading(#server{mod = Mod, state = State,
 	    {Epoch,Z}=Zxid,
 	    Z1 =Z+1,
 	    NewZxid={Epoch,Z1},
-	    Tran=#transaction{zxid=NewZxid,value=Msg},
+	    Tran=#t{zxid=NewZxid,value=Msg},
 	    
-	    Proposal=#proposal{sender=Sender,client=From,transaction=Tran},
+	    Proposal=#p{sender=Sender,client=From,transaction=Tran},
 	    ZabReq=#zab_req{msg=Proposal},
 	    Acks=dict:new(),
 	    
@@ -902,13 +906,13 @@ leading(#server{mod = Mod, state = State,
 			Size >=Quorum -> 
 						%Result=Mod:handle_commit(Zxid,),
 			    P1=Pro#proposal_rec.proposal,
-			    T1=P1#proposal.transaction,
-			    V1=T1#transaction.value,
+			    T1=P1#p.transaction,
+			    V1=T1#t.value,
 			    {ok,Result,Ns}=Mod:handle_commit(V1,Zxid1,State,ZabServerInfo),
 			    ZabCommit=#zab_commit{msg=Zxid1},
 			    ets:delete(Que,Zxid1),
 			    abcast(Mod,lists:delete(node(),Ensemble),ZabCommit,Server#server.logical_clock),
-			    reply(P1#proposal.client,Result),
+			    reply(P1#p.client,Result),
 			    loop(Server#server{state=Ns,last_commit_zxid=Zxid1},ZabState,ZabServerInfo)
 				;
 			true -> 
@@ -931,7 +935,7 @@ leading(#server{mod = Mod, state = State,
 	{recover_req,From,StartZxid} ->
 	    {ok,{Res,_}}=
 		ProposalLogMod:fold(fun({_Key,Value},{Acc,Count})->		
-							   {[Value|Acc],Count-1} end,{[],100},StartZxid,BackEndOpts),
+							   {[Value|Acc],Count-1} end,{[],Server#server.recover_msg_size},StartZxid,BackEndOpts),
     
 	   % {ok,Res}=ProposalLogMod:iterate_zxid_count(fun({_K,V})->
 	   %			       V end,StartZxid,100),

@@ -47,10 +47,10 @@
 	     epoch::integer()
 }).
 
--record(transaction,{value::any(),zxid::zxid()}).
+-record(t,{value::any(),zxid::zxid()}).
 
 
--record(proposal,{sender::peer(),client::client(),transaction::#transaction{}}).
+-record(p,{sender::peer(),client::client(),transaction::#t{}}).
 
 -record(zab_req,{msg}).
 -record(zab_ack,{msg}).
@@ -58,7 +58,7 @@
 
 -record(zab_server_info,{leader,zab_state}).
 
--record(proposal_rec,{zxid::zxid(),proposal::#proposal{},acks::list(),commit::boolean()}).
+-record(proposal_rec,{zxid::zxid(),proposal::#p{},acks::list(),commit::boolean()}).
 -record(log_gc,{prefix::string,min::zxid(),max::zxid()}).
 
 -record(gc_req,{from}).

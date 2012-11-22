@@ -56,16 +56,16 @@ all() ->
 
 put_get(_Config) ->
     Zxid={1,1},
-    Txn=#transaction{zxid=Zxid,value=test},
-    Proposal=#proposal{transaction=Txn},
+    Txn=#t{zxid=Zxid,value=test},
+    Proposal=#p{transaction=Txn},
     ok=zabe_proposal_leveldb_backend:put_proposal(Zxid,Proposal,[]),
     {ok,Proposal}=zabe_proposal_leveldb_backend:get_proposal(Zxid,[]),
     ok.
 
 get_last(_Config)->
     Zxid={10,10},
-    Txn=#transaction{zxid=Zxid,value=test},
-    Proposal=#proposal{transaction=Txn},
+    Txn=#t{zxid=Zxid,value=test},
+    Proposal=#p{transaction=Txn},
     Z2={20,20},
     zabe_proposal_leveldb_backend:put_proposal(Zxid,Proposal,[]),
     zabe_proposal_leveldb_backend:put_proposal(Z2,Proposal,[]),
@@ -74,14 +74,14 @@ get_last(_Config)->
     ok.
 get_epoch_last_zxid(_Config)->
     Zxid={10,10},
-    Txn=#transaction{zxid=Zxid,value=test},
-    Proposal=#proposal{transaction=Txn},
+    Txn=#t{zxid=Zxid,value=test},
+    Proposal=#p{transaction=Txn},
     Z2={10,11},
-    Txn2=#transaction{zxid=Z2,value=test},
-    Proposal2=#proposal{transaction=Txn2},
+    Txn2=#t{zxid=Z2,value=test},
+    Proposal2=#p{transaction=Txn2},
     Z3={20,20},
-    Txn3=#transaction{zxid=Z3,value=test},
-    Proposal3=#proposal{transaction=Txn3},
+    Txn3=#t{zxid=Z3,value=test},
+    Proposal3=#p{transaction=Txn3},
     zabe_proposal_leveldb_backend:put_proposal(Zxid,Proposal,[]),
     zabe_proposal_leveldb_backend:put_proposal(Z2,Proposal2,[]),
     zabe_proposal_leveldb_backend:put_proposal(Z3,Proposal3,[]),
@@ -90,14 +90,14 @@ get_epoch_last_zxid(_Config)->
 
 zxid_fold(_Config)->
     Zxid={10,10},
-    Txn=#transaction{zxid=Zxid,value=test},
-    Proposal=#proposal{transaction=Txn},
+    Txn=#t{zxid=Zxid,value=test},
+    Proposal=#p{transaction=Txn},
     Z2={10,21},
-    Txn2=#transaction{zxid=Z2,value=test},
-    Proposal2=#proposal{transaction=Txn2},
+    Txn2=#t{zxid=Z2,value=test},
+    Proposal2=#p{transaction=Txn2},
     Z3={20,20},
-    Txn3=#transaction{zxid=Z3,value=test},
-    Proposal3=#proposal{transaction=Txn3},
+    Txn3=#t{zxid=Z3,value=test},
+    Proposal3=#p{transaction=Txn3},
     zabe_proposal_leveldb_backend:put_proposal(Zxid,Proposal,[]),
     zabe_proposal_leveldb_backend:put_proposal(Z2,Proposal2,[]),
     zabe_proposal_leveldb_backend:put_proposal(Z3,Proposal3,[]),
@@ -114,8 +114,8 @@ put(254) ->
     ok;
 put(N)->
     Z={1,N},
-    Txn=#transaction{zxid=Z,value=test},
-    Proposal=#proposal{transaction=Txn},
+    Txn=#t{zxid=Z,value=test},
+    Proposal=#p{transaction=Txn},
     zabe_proposal_leveldb_backend:put_proposal(Z,Proposal,[]),
     put(N-1).
 %% test leveldb zxid encode decode relate for byte endian
@@ -135,18 +135,18 @@ gc(_Conf)->
 	.
 zxid_fold_count(_Config)->
     Zxid={10,10},
-    Txn=#transaction{zxid=Zxid,value=test},
-    Proposal=#proposal{transaction=Txn},
+    Txn=#t{zxid=Zxid,value=test},
+    Proposal=#p{transaction=Txn},
     Z2={10,11},
-    Txn2=#transaction{zxid=Z2,value=test},
-    Proposal2=#proposal{transaction=Txn2},
+    Txn2=#t{zxid=Z2,value=test},
+    Proposal2=#p{transaction=Txn2},
     Z3={20,20},
-    Txn3=#transaction{zxid=Z3,value=test},
-    Proposal3=#proposal{transaction=Txn3},
+    Txn3=#t{zxid=Z3,value=test},
+    Proposal3=#p{transaction=Txn3},
 
     Z4={20,21},
-    Txn4=#transaction{zxid=Z4,value=test},
-    Proposal4=#proposal{transaction=Txn4},
+    Txn4=#t{zxid=Z4,value=test},
+    Proposal4=#p{transaction=Txn4},
 
     zabe_proposal_leveldb_backend:put_proposal(Zxid,Proposal,[]),
     zabe_proposal_leveldb_backend:put_proposal(Z2,Proposal2,[]),

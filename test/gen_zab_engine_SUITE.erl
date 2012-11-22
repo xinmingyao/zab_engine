@@ -183,9 +183,9 @@ leader_crash_with_more_proposal(_C)->
     Log2=zabe_zxid:encode_key(Bucket,{1,2}),
     Log3=zabe_zxid:encode_key(Bucket,{1,3}),
 
-    Proposal1=#proposal{sender=self(),client=self(),transaction=#transaction{zxid={1,1},value={put,"k1","v1"}}},
-    Proposal2=#proposal{sender=self(),client=self(),transaction=#transaction{zxid={1,2},value={put,"k2","v2"}}},
-    Proposal3=#proposal{sender=self(),client=self(),transaction=#transaction{zxid={1,3},value={put,"k3","v3"}}},
+    Proposal1=#p{sender=self(),client=self(),transaction=#t{zxid={1,1},value={put,"k1","v1"}}},
+    Proposal2=#p{sender=self(),client=self(),transaction=#t{zxid={1,2},value={put,"k2","v2"}}},
+    Proposal3=#p{sender=self(),client=self(),transaction=#t{zxid={1,3},value={put,"k3","v3"}}},
     eleveldb:put(Zab1,Log1,term_to_binary(Proposal1),[]),
     eleveldb:put(Zab1,Log2,term_to_binary(Proposal2),[]),
     eleveldb:put(Zab2,Log1,term_to_binary(Proposal1),[]),
