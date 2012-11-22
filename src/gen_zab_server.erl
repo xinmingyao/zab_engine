@@ -888,7 +888,7 @@ leading(#server{mod = Mod, state = State,
 		       true ->NCount 
 		    end,
 	    %%
-	    abcast(Mod,lists:delete(node(),Ensemble),ZabReq,Server#server.logical_clock),
+	    abcast2(Mod,lists:delete(node(),Ensemble),ZabReq,Server#server.logical_clock),
 	    loop(Server#server{zab_log_count_time=NTime,zab_log_count=N2Count,current_zxid=NewZxid,last_zxid=NewZxid},ZabState,ZabServerInfo)
 		;
 	#zab_ack{msg={Zxid1,From}}->
@@ -911,7 +911,7 @@ leading(#server{mod = Mod, state = State,
 			    {ok,Result,Ns}=Mod:handle_commit(V1,Zxid1,State,ZabServerInfo),
 			    ZabCommit=#zab_commit{msg=Zxid1},
 			    ets:delete(Que,Zxid1),
-			    abcast(Mod,lists:delete(node(),Ensemble),ZabCommit,Server#server.logical_clock),
+			    abcast2(Mod,lists:delete(node(),Ensemble),ZabCommit,Server#server.logical_clock),
 			    reply(P1#p.client,Result),
 			    loop(Server#server{state=Ns,last_commit_zxid=Zxid1},ZabState,ZabServerInfo)
 				;
@@ -962,6 +962,13 @@ leading(#server{mod = Mod, state = State,
     end.
 abcast(Mod,Assemble,ZabReq,LC)->
     [send_zab_msg({Mod,Node},ZabReq,LC)||Node<-Assemble],
+    ok.
+%%do not send msg to offline node,which will cause epmd high cpu
+abcast2(Mod,Assemble,ZabReq,LC)->
+    Ns=nodes(),
+    N=lists:filter(fun(A)->
+			   is_elem(A,Ns) end,Assemble),
+    abcast(Mod,N,ZabReq,LC),
     ok.
     
 
@@ -1197,3 +1204,10 @@ send_zab_msg(To,Msg,LC)->
 
 get_timestamp()->
     calendar:datetime_to_gregorian_seconds(erlang:localtime()).
+
+is_elem(_A,[])->
+    false;
+is_elem(H,[H|T]) ->
+    true;
+is_elem(A,[_|T]) ->
+    is_elem(A,T).
