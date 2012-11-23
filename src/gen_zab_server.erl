@@ -32,13 +32,6 @@
 
 
 
-%-define(LEADER_STATE_LOOKING,1).
-%-define(LEADER_STATE_RECORVER,2).
-%-define(LEADER_STATE_LEADING,3).
-%-define(LEADER_STATE_FOLLOWING,4).
-%-define(LEADER_STATE_OBSERVEING,5).
-
-
 -compile([{parse_transform, lager_transform}]).
 
 -include("zabe_main.hrl").
@@ -267,10 +260,6 @@ init_it(Starter,Parent,Name,Mod,{CandidateNodes,OptArgs,Arg},Options) ->
 	 {ok, State,LastCommitZxid}->
 	     do_ok(Starter,CandidateNodes,LastCommitZxid,Mod,Parent,State,
 		   LastCommitZxid,OptArgs,debug_options(Name, Options));
-       % {ok, State,LastCommitZxid,LastGcLogZxid} ->
-       %	     do_ok(Starter,CandidateNodes,LastCommitZxid,Mod,Parent,State,
-       %		   LastCommitZxid,LastGcLogZxid,OptArgs,debug_options(Name,Options),true)
-       %     ;
         Else ->
 	     Error = {init_bad_return_value, Else},
 	     proc_lib:init_ack(Starter, {error, Error}),
@@ -416,14 +405,7 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 		    loop(Server,ZabState,ZabServerInfo);
 		#msg{epoch=Epoch} when Epoch < Server#server.logical_clock ->
 		    %fush invalidate msg
-		    %lager:error("~p ~p",[Msg1  ,Server#server.logical_clock]),
 		    loop(Server,ZabState,ZabServerInfo);
-		%#msg{cmd=?VOTE_CMD,value=V}->
-		%    V=erlang:get(vote),
-		%    V1=V#vote{from=node(),leader=V#vote.leader,zxid=LastZxid},
-		%    send_zab_msg(V#vote.from,V1), 
-		% 
-		%    loop(Server,ZabState,ZabServerInfo);
 		#msg{value=Rep=#gc_reply{from=ReplyFrom}}->
 		    G2=dict:store(ReplyFrom,Rep,GcReplys),
 		    T1=dict:size(G2),
@@ -514,11 +496,6 @@ looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=EP
 						 {LastCommitZxid,infinite},LastCommitZxid,BackEndOpts),
 		       T
 	    end,
-	    
-	    %%monitor_follows(RecvVotes,Quorum),
-	    %%
-	    %lager:debug("monitors ~p~p",[MonFollowRefs,RecvVotes]),
-	    
 	    N5=lists:foldl(fun(#vote{from=From},Acc)->
 
 				   if From=:=node() ->
@@ -532,8 +509,6 @@ looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=EP
 	    T6=dict:size(N5)+1,
 	    if T6 >=Quorum 
 	       ->
-	
-	    %%
 		    loop(Server#server{role=?LEADING,leader=Node,last_zxid=Last,mon_follow_refs=N5,
 				       last_commit_zxid=Last},leader_recover,ZabServerInfo) ;
 	       true-> 
@@ -563,29 +538,12 @@ looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=EP
 			   },looking,#zab_server_info{}
 			 );
 		Ref->
-       %	    case zabe_util:zxid_compare(LeaderZxid,LastZxid) of
-       %		epoch_small1->
 		    timer:sleep(50),%%todo fix this by leader handle this
 		    M1={truncate_req,{Mod,node()},LastZxid},
 		    
 		    send_zab_msg({Mod,Node},M1,V#vote.epoch),
 		    loop(Server#server{leader=Node,logical_clock=V#vote.epoch,role=?FOLLOWING,mon_leader_ref=Ref},follow_recover,ZabServerInfo) 
 	    end;
-	 
-		
-		
-	%	equal->
-        %		    timer:sleep(50), %%leader maybe slow,and in looking state todo fix this,use timer send to leader
-	%	    M1={recover_ok,{Mod,node()}},
-	%	    send_zab_msg({Mod,Node},M1),
-        %		    loop(Server#server{leader=Node,role=?FOLLOWING},following,ZabServerInfo) ;
-	%	_->
-	%	    timer:sleep(50),
-	%	    M1={recover_req,{Mod,node()},LastZxid},
-        %		    send_zab_msg({Mod,Node},M1),
-	%	    loop(Server#server{leader=Node,role=?FOLLOWING},follow_recover,ZabServerInfo)
-	%    end;
-	    
 	 _ -> %flush msg
 	    loop(Server,ZabState,ZabServerInfo) 
     end
@@ -633,16 +591,18 @@ leader_recover(#server{mod = _Mod, state = _State,debug=_Debug,quorum=Quorum,ele
 	    loop(Server,ZabState,ZabServerInfo);
 
 	{recover_req,From,StartZxid} ->
-	   % {ok,Res}=ProposalLogMod:iterate_zxid_count(fun({_K,V})->
-	   %			       V end,StartZxid,100),
-	    
-	    {ok,{Res,_}}=
-		ProposalLogMod:fold(fun({_Key,Value},{Acc,Count})->		
-							   {[Value|Acc],Count-1} end,{[],Server#server.recover_msg_size},StartZxid,BackEndOpts),
+	    case zabe_util:zxid_big(Server#server.last_gc_log_zxid,StartZxid) of
+		false->
+		    {ok,{Res,_}}=
+			ProposalLogMod:fold(fun({_Key,Value},{Acc,Count})->		
+						    {[Value|Acc],Count-1} end,{[],Server#server.recover_msg_size},StartZxid,BackEndOpts),
     
-	    M1={recover_ack,lists:reverse(Res),CurZxid},
-	    
-	    send_zab_msg(From,M1,Server#server.logical_clock),
+		    M1={recover_ack,lists:reverse(Res),CurZxid},
+		    send_zab_msg(From,M1,Server#server.logical_clock);
+		true-> %%gc is big peer last_zxid can not recover by log
+		    M2={last_gc_big},
+		    send_zab_msg(From,M2,Server#server.logical_clock)
+	    end,		
 	    loop(Server,ZabState,ZabServerInfo);
 	_ -> %flush msg
 	    loop(Server,ZabState,ZabServerInfo) 
@@ -681,7 +641,6 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 			      Mod:handle_commit(Pp#p.transaction#t.value,Z1,State,ZabServerInfo),
 							 Z1
 						  end,
-			   % NewZxid=fold_all(Que,F,Last),
 		    NewZxid=fold_all(Que,F,Last,ets:first(Que),LastZxid),
 		    lager:notice("##follow recover local ok,state to followiing##"),
 		    loop(Server#server{last_zxid=NewZxid,last_commit_zxid=NewZxid},following,ZabServerInfo)    
@@ -693,12 +652,9 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 		    loop(Server#server{last_zxid=Last,last_commit_zxid=Last},ZabState,ZabServerInfo);
 		_ when QueSize>0 ->
 		    Min=ets:first(Que),
-		   % [M2|_]=ets:lookup(Que,Min),
-		   % Pro=M2#proposal_rec.proposal,
-		    % MinZxid = Pro#p.transaction#t.zxid,
                     case zabe_util:zxid_big_eq(Last,Min) of
 			true->		
-			   % lager:debug("recover local~p",[ets:tab2list(Que)]),
+			
 			   % lager:debug(" recover local ~p ~p",[Last,MinZxid]),
 			    F=fun(P1)->
 				      Pp=P1#proposal_rec.proposal,
@@ -722,7 +678,6 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 	    end
 		;
 	{truncate_ack,LeaderEpochLastZxid}  ->
-	   % {E1,_}=LastZxid,
 	    MZxid=case LeaderEpochLastZxid of
 		      not_need->LastZxid;
 		      not_found->LastZxid;
@@ -732,8 +687,7 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 			      ProposalLogMod:fold(fun({Key,_Value},{Acc,Count})->		
 							  {[Key|Acc],Count} end,{[],infinite},
 						  zabe_util:zxid_plus(LeaderEpochLastZxid),BackEndOpts),
-			 % {ok,L1}=ProposalLogMod:trunc(fun({K,_V})->
-			 %				       K end ,zabe_util:zxid_plus(LeaderEpochLastZxid),[]),
+			
 			  lists:map(fun(Key)->
 					    ProposalLogMod:delete_proposal(Key,BackEndOpts) end,lists:reverse(L2)),
 			  LeaderEpochLastZxid
@@ -766,6 +720,10 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 		    do_nothing
 	    end,		    
 	    loop(Server,ZabState,ZabServerInfo);
+	{last_gc_big}->
+	    lager:critical("leader last gc zxid >peer last_zxid ,can not recover,node will halt()"),
+	    %TODO use file transfer,copy log file from peer
+	    erlang:halt("leader last gc zxid >peer last_zxid ,can not recover,node will halt()");
 	_ -> %flush msg %todo save proposal msg into que
 	    loop(Server,ZabState,ZabServerInfo) 
     end
@@ -933,16 +891,18 @@ leading(#server{mod = Mod, state = State,
 	    loop(Server,ZabState,ZabServerInfo);
 
 	{recover_req,From,StartZxid} ->
-	    {ok,{Res,_}}=
-		ProposalLogMod:fold(fun({_Key,Value},{Acc,Count})->		
-							   {[Value|Acc],Count-1} end,{[],Server#server.recover_msg_size},StartZxid,BackEndOpts),
+	    case zabe_util:zxid_big(Server#server.last_gc_log_zxid,StartZxid) of
+		false->
+		    {ok,{Res,_}}=
+			ProposalLogMod:fold(fun({_Key,Value},{Acc,Count})->		
+						    {[Value|Acc],Count-1} end,{[],Server#server.recover_msg_size},StartZxid,BackEndOpts),
     
-	   % {ok,Res}=ProposalLogMod:iterate_zxid_count(fun({_K,V})->
-	   %			       V end,StartZxid,100),
-	    
-	    M1={recover_ack,lists:reverse(Res),CurZxid},
-	    
-	    send_zab_msg(From,M1,Server#server.logical_clock),
+		    M1={recover_ack,lists:reverse(Res),CurZxid},
+		    send_zab_msg(From,M1,Server#server.logical_clock);
+		true-> %%gc is big peer last_zxid can not recover by log
+		    M2={last_gc_big},
+		    send_zab_msg(From,M2,Server#server.logical_clock)
+	    end,		
 	    loop(Server,ZabState,ZabServerInfo);
 	{recover_ok,From} ->	    
 	    

@@ -24,8 +24,29 @@ end_per_testcase(_TestCase,_Config) ->
 all()->
     [normal,leader_down_up,follow_down_up,partion,
      online_recover,
-     gc
+     gc,recover_gc_big_zxid
     ].
+recover_gc_big_zxid(_C)->
+    zabe_test_util:stop(),
+    zabe_test_util:start_slave(n1,[{gc_by_zab_log_count,3}]),
+    zabe_test_util:start_slave(n2,[{gc_by_zab_log_count,3}]),
+    zabe_test_util:start_slave(n3,[{gc_by_zab_log_count,3}]),
+    timer:sleep(5000),
+    Key="test1",
+    Value="value1",
+    rpc:call('n1@localhost',zabe_learn_leveldb,put,[Key,Value]),
+    rpc:call('n1@localhost',zabe_learn_leveldb,put,[Key,Value]),
+    rpc:call('n1@localhost',zabe_learn_leveldb,put,[Key,Value]),
+    rpc:call('n1@localhost',zabe_learn_leveldb,put,[Key,Value]),
+    rpc:call('n1@localhost',zabe_learn_leveldb,put,[Key,Value]),
+    slave:stop('n1@localhost'),
+    zabe_test_util:start_slave(n1,[{gc_by_zab_log_count,3}]),
+    timer:sleep(3000),
+    pang=net_adm:ping('n1@localhost'),
+    error_logger:info_msg("~p~n",nodes()),
+    zabe_test_util:stop(),
+    ok.
+    
 gc(_C)->
     zabe_test_util:stop(),
     zabe_test_util:start_slave(n1,[{gc_by_zab_log_count,3}]),
