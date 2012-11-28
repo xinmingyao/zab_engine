@@ -33,7 +33,7 @@ elect(_Config)->
     zabe_test_util:start_elect_slave(n1,LastZxid),
     zabe_test_util:start_elect_slave(n2,LastZxid),
     zabe_test_util:start_elect_slave(n3,LastZxid),    
-    timer:sleep(1200),    
+    timer:sleep(1500),    
 
     ?FOLLOWING=rpc:call('n1@localhost',zabe_fast_leader_test,get_state,[]),
     ?FOLLOWING=rpc:call('n2@localhost',zabe_fast_leader_test,get_state,[]),
@@ -45,7 +45,7 @@ elect_zxid_not_equal(_C)->
     zabe_test_util:start_elect_slave(n1,{2,1}),
     zabe_test_util:start_elect_slave(n2,{1,1}),
     zabe_test_util:start_elect_slave(n3,{1,1}),    
-    timer:sleep(1200),    
+    timer:sleep(1500),    
     ?LEADING=rpc:call('n1@localhost',zabe_fast_leader_test,get_state,[]),
     ?FOLLOWING=rpc:call('n2@localhost',zabe_fast_leader_test,get_state,[]),
     ?FOLLOWING=rpc:call('n3@localhost',zabe_fast_leader_test,get_state,[]),

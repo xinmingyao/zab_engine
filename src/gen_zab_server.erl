@@ -790,7 +790,13 @@ following(#server{mod = Mod, state = State,
 	     case ProposalLogMod:get_proposal(Zxid1,BackEndOpts) of
 		 {ok,Proposal}-> 
 		     Txn=Proposal#p.transaction,
-		     {ok,_,Ns}=Mod:handle_commit(Txn#t.value,Zxid1,State,ZabServerInfo),
+		     {ok,Result,Ns}=Mod:handle_commit(Txn#t.value,Zxid1,State,ZabServerInfo),
+		     {_,PeerNode}=Proposal#p.sender,
+			    if PeerNode =:=node() ->
+				    reply(Proposal#p.client,Result);
+			       true->
+				    do_nothing
+			    end,
 		     loop(Server#server{state=Ns,last_commit_zxid=Zxid1},ZabState,ZabServerInfo);
 		 _-> %maybe commit in recover,ignore
 		     loop(Server,ZabState,ZabServerInfo)
@@ -870,7 +876,12 @@ leading(#server{mod = Mod, state = State,
 			    ZabCommit=#zab_commit{msg=Zxid1},
 			    ets:delete(Que,Zxid1),
 			    abcast2(Mod,lists:delete(node(),Ensemble),ZabCommit,Server#server.logical_clock),
-			    reply(P1#p.client,Result),
+			    {_,PeerNode}=P1#p.sender,
+			    if PeerNode =:=node() ->
+				    reply(P1#p.client,Result);
+			       true->
+				    do_nothing
+			    end,
 			    loop(Server#server{state=Ns,last_commit_zxid=Zxid1},ZabState,ZabServerInfo)
 				;
 			true -> 
