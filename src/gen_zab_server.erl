@@ -763,7 +763,7 @@ following(#server{mod = Mod, state = State,
 
     case Msg1 of
 	{'$proposal_call',From,Msg} ->
-	    send_zab_msg({Mod,Leader},{zab_proposal,From,Msg,{Mod,node()}},Server#server.logical_clock),
+	    send_zab_msg({Mod,Leader},{zab_proposal,From,Msg,node()},Server#server.logical_clock),
 	    loop(Server,ZabState,ZabServerInfo)
 		;
 	#zab_req{msg=Msg}->
@@ -791,7 +791,7 @@ following(#server{mod = Mod, state = State,
 		 {ok,Proposal}-> 
 		     Txn=Proposal#p.transaction,
 		     {ok,Result,Ns}=Mod:handle_commit(Txn#t.value,Zxid1,State,ZabServerInfo),
-		     {_,PeerNode}=Proposal#p.sender,
+		     PeerNode=Proposal#p.sender,
 			    if PeerNode =:=node() ->
 				    reply(Proposal#p.client,Result);
 			       true->
@@ -821,7 +821,7 @@ leading(#server{mod = Mod, state = State,
     case Msg1 of
 	
 	{'$proposal_call',From,Msg} ->
-	    send_zab_msg(self(),{zab_proposal,From,Msg,{Mod,node()}},Server#server.logical_clock),
+	    send_zab_msg(self(),{zab_proposal,From,Msg,node()},Server#server.logical_clock),
 	    loop(Server,ZabState,ZabServerInfo);
 	{zab_proposal,From,Msg,Sender} ->
 	    {Epoch,Z}=Zxid,
@@ -876,7 +876,7 @@ leading(#server{mod = Mod, state = State,
 			    ZabCommit=#zab_commit{msg=Zxid1},
 			    ets:delete(Que,Zxid1),
 			    abcast2(Mod,lists:delete(node(),Ensemble),ZabCommit,Server#server.logical_clock),
-			    {_,PeerNode}=P1#p.sender,
+			    PeerNode=P1#p.sender,
 			    if PeerNode =:=node() ->
 				    reply(P1#p.client,Result);
 			       true->

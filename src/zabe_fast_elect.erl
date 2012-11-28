@@ -37,7 +37,7 @@
 }).
 
 
--define(WAIT_TIMEOUT,500).
+-define(WAIT_TIMEOUT,700).
 -define(PROPOSED,proposed).
 -define(VOTE_TIMER,300).
 

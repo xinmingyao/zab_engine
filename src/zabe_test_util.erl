@@ -42,7 +42,7 @@ start_lager()->
     os:cmd("rm -f "++ Log),
     application:load(lager),
     application:set_env(lager, handlers, [{lager_console_backend,error}
-					  ,{lager_file_backend,[{Log,debug,10485760,"$D0",5}]}
+					  ,{lager_file_backend,[{Log,notice,10485760,"$D0",5}]}
 					 ]),
     application:set_env(lager, error_logger_redirect, false),
  
