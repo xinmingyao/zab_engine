@@ -81,7 +81,7 @@ start_link(Election) ->
 %% @end
 %%--------------------------------------------------------------------
 init([#election{logical_clock=LogicalClock,parent=ManagerName,last_zxid=LastZxid,ensemble=Ensemble,quorum=Quorum,last_commit_zxid=LastCommitZxid}]) ->
-    lager:info("elect start"),
+    lager:notice("Manger:~p,elect start",[ManagerName]),
    % {Epoch,_TxnId}=LastZxid,
     LogicalClock=1,
     V=#vote{from=node(),leader=node(),zxid=LastZxid,
@@ -480,16 +480,13 @@ send_notifications(V=#vote{},Ensemble,ManagerName)->
     lists:map(fun(N)->
 		      catch erlang:send({ManagerName,N},Msg) end ,Ensemble).
     
-%    R=[erlang:send({ManagerName,Node},Msg)||Node<-Ensemble],
-%    lager:debug("send ~p",[R]) 
-	
 				     
 total_order_predicate(New,NewZxid,Cur,CurZxid)->
     (NewZxid>CurZxid) orelse ((NewZxid==CurZxid) andalso (New>Cur)).
 notify_manager(ManagerName,RecvVotes) ->
     V=get(?PROPOSED),
-    lager:info("elect result vote is: ~p~n",[V]),
-    catch erlang:send(ManagerName,#msg{cmd=?ZAB_CMD,value={elect_reply,{ok,V,RecvVotes}}}).
+    lager:notice("Manager:~p,elect result vote is: ~p~n",[ManagerName,V]),
+    erlang:send(ManagerName,#msg{cmd=?ZAB_CMD,value={elect_reply,{ok,V,RecvVotes}}}).
 
 check_leader(_Votes,Leader,Leader) ->
     true;

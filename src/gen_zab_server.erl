@@ -483,6 +483,8 @@ looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=EP
 		proposal_log_mod=ProposalLogMod,back_end_opts=BackEndOpts} = Server
 	,Msg1,ZabState,ZabServerInfo)->
     case Msg1 of
+	{truncate_req,_,_}->%%  handle follower and leader elect time diff
+	    erlang:send_after(50,self(),#msg{cmd=?ZAB_CMD,value=Msg1,epoch=Server#server.logical_clock});
 	{elect_reply,{ok,V=#vote{leader=Node},RecvVotes}} when Node=:=node() ->	    
 	    erlang:put(vote,V),
 	    Last=case zabe_util:zxid_eq(LastZxid,LastCommitZxid) of
@@ -538,7 +540,7 @@ looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=EP
 			   },looking,#zab_server_info{}
 			 );
 		Ref->
-		    timer:sleep(50),%%todo fix this by leader handle this
+		    timer:sleep(50),%%follower and leader elect time diff,leader handle too,
 		    M1={truncate_req,{Mod,node()},LastZxid},
 		    
 		    send_zab_msg({Mod,Node},M1,V#vote.epoch),
@@ -655,7 +657,6 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
                     case zabe_util:zxid_big_eq(Last,Min) of
 			true->		
 			
-			   % lager:debug(" recover local ~p ~p",[Last,MinZxid]),
 			    F=fun(P1)->
 				      Pp=P1#proposal_rec.proposal,
 				      Z1=Pp#p.transaction#t.zxid,
@@ -663,7 +664,6 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 				      Mod:handle_commit(Pp#p.transaction#t.value,Z1,State,ZabServerInfo),
 							 Z1
 						  end,
-			   % NewZxid=fold_all(Que,F,Last),
 			    NewZxid=fold_all(Que,F,Last,Min,Last),
 			    %ets:delete_all_objects(Que),
 			    lager:notice("##follow recover ok,state to followiing##"),
