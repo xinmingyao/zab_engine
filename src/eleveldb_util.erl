@@ -11,8 +11,9 @@
 zxid_fold(Ref,Fun,Acc,Start,Prefix)->
 
     Key=zabe_zxid:encode_key(Prefix,Start),
+    Opts=[{fill_cache,false}],
     fold(Ref,
-	      Fun,Acc,[],Prefix,Key,itera_end).
+	      Fun,Acc,Opts,Prefix,Key,itera_end).
 
 
 

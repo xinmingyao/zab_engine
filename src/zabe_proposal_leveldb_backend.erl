@@ -84,25 +84,24 @@ start_link(Dir,Opts) ->
 %%--------------------------------------------------------------------
 
 
-
 init([Dir,_Opts]) ->    
-   % WorkDir="/home/erlang/tmp/proposal.bb",
-   % Bucket        = proplists:get_value(bucket,Opts,""),
-   % eleveldb:repair(Dir,[]),
-    case eleveldb:open(Dir, [{create_if_missing, true},{max_open_files,50},
-			     {comparator,zab,
-			     %"/tmp/22"
-			      filename:join(Dir,"gc_db")
+    case eleveldb:open(Dir, [{create_if_missing, true},
+			     {write_buffer_size,get_env(log_write_buffer_size,6*1024*1024)},
+			     {cache_size,get_env(log_cach_size,6*1024*1024)},
+			     {max_open_files,get_env(log_max_open_files,50)},
+			     {comparator,
+			      zab,
+			      filename:join(Dir,"gc_db") %gc location
 			     }]) of
         {ok, Ref} ->
-	    lager:info("zab engine start db on log dir ~p ok",[Dir]),
-	    %%the bigest key in db ,other else leveldb iterator to Max Key will error
+	    lager:notice("zab engine start db on log dir ~p ok",[Dir]),
+	    %%the bigest key in db ,other else leveldb iterator to Max Key will error,to be handle more good
 	    K1= zabe_zxid:max_key(255),
 	    case eleveldb:get(Ref,K1,[]) of
 	     	not_found->
 	    	    eleveldb:put(Ref,K1,K1,[]);
                  {error,Reason}->
-	    	    lager:info("erorr ~p",[Reason]);
+	    	    lager:error("erorr ~p",[Reason]);
 	    	_->
 	    	    ok
              end ,
@@ -225,10 +224,7 @@ handle_call({get_gc,Opts}, _From, State=#state{leveldb=Db}) ->
     end;
 
 handle_call({fold,Fun,Acc,Start,Opts}, _From, State=#state{leveldb=Db}) ->
-        Bucket = proplists:get_value(bucket,Opts,1),
-%    L=eleveldb:fold(Db,
-%		       Fun,
-%		       [], [{first_key, list_to_binary(zabe_util:encode_key(zabe_util:encode_zxid(Start),Bucket))}]),
+    Bucket = proplists:get_value(bucket,Opts,1),
     L=eleveldb_util:zxid_fold(Db,Fun,Acc,Start,Bucket),
     {reply,{ok,L},State}.
 
@@ -295,3 +291,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+get_env(Key, Default) ->
+    case application:get_env(zab_engine, Key) of
+	{ok, Value} -> {ok, Value};
+	undefined   -> {ok, Default}
+    end.

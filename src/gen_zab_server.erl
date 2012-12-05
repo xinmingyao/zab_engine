@@ -244,7 +244,7 @@ init_it(Starter, self, Name, Mod, {CandidateNodes, OptArgs, Arg}, Options) ->
             {CandidateNodes, OptArgs, Arg}, Options);
 init_it(Starter,Parent,Name,Mod,{CandidateNodes,OptArgs,Arg},Options) ->
 %    Interval    = proplists:get_value(heartbeat, OptArgs, ?TAU div 1000) * 1000,
-    lager:notice("#####begin start#####"),
+    lager:notice("~p:#####begin start#####",[Mod]),
     
 %    ProposalDir =proplists:get_value(proposal_dir,OptArgs,"/tmp/p1.ldb"),
      case Mod:init(Arg)  of
@@ -333,7 +333,7 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 		    mon_leader_ref=_ModLeaderRef},ZabState,ZabServerInfo)->
     receive
 	Msg1->
-	    lager:debug("zab state:~p receive msg:~p",[ZabState,Msg1]),
+	    lager:debug("Mod:~p,zab state:~p receive msg:~p",[Mod,ZabState,Msg1]),
 	    case Msg1 of
 		{zab_system,snapshot}->
 		    case Server#server.memory_db of
@@ -342,7 +342,7 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 				{ok,N1}->
 				    loop(Server#server{last_snapshot_zxid=LastZxid,state=N1},ZabState,ZabServerInfo);
 				_->
-				    lager:error("~p :zab snapshot error",[]),
+				    lager:error("~p :zab snapshot error",[Mod]),
 				    loop(Server,ZabState,ZabServerInfo)
 			    end;
 			false->
@@ -361,13 +361,16 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 			 ,{gc_by_zab_log_count,Server#server.gc_by_zab_log_count}
 			 ,{msg_que_size,ets:info(Server#server.proposal_que,size)}
 			 ,{is_leader,Leader=:=node()}
+			 ,{leader,Leader}
+			 ,{zab_state,ZabState}
 			 ,{ensemble,Ensemble}],
-		    catch erlang:send(From,{zab_info,Ret}),
+		    catch erlang:send_nosuspend(From,{zab_info,Ret}),
 		    loop(Server,ZabState,ZabServerInfo);
 		{'DOWN',_ModLeaderRef,_,{_,Leader},_}->
 		    ets:delete_all_objects(Que),
 		    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
-		    lager:notice("##leader:~p down zxid:~p,commit zxid:~p,change state~p to looking##",[Leader,LastZxid,LastCommitZxid,ZabState]),
+		    lager:notice("Mod:~p,##leader:~p down zxid:~p,commit zxid:~p,change state~p to looking##",
+				 [Mod,Leader,LastZxid,LastCommitZxid,ZabState]),
 		    loop(Server#server{
 			    recover_acks=dict:new(),
 			    mon_follow_refs=dict:new(),
@@ -384,8 +387,8 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 		       ->loop(Server#server{mon_follow_refs=N1},ZabState,ZabServerInfo);
 		       true->
 			    ets:delete_all_objects(Que),
-			    lager:notice("##lose quorum:~p,zxid:~p,commit zxid:~p,change state~p to looking##",
-					 [dict:to_list(N1),LastZxid,LastCommitZxid,ZabState]),
+			    lager:notice("Mod:~p,##lose quorum:~p,zxid:~p,commit zxid:~p,change state~p to looking##",
+					 [Mod,dict:to_list(N1),LastZxid,LastCommitZxid,ZabState]),
 			    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
 			    M1={partition,less_quorum},
 			    abcast(Mod,lists:delete(node(),Ensemble),M1,Server#server.logical_clock),
@@ -445,7 +448,8 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 		    ets:delete_all_objects(Que),
 		    
 		    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
-		    lager:notice("##begin re-elect ,zxid:~p,commit zxid:~p,change state~p to looking##",[LastZxid,LastCommitZxid,ZabState]),
+		    lager:notice("Mod:~p,##begin re-elect ,zxid:~p,commit zxid:~p,change state~p to looking##",
+				 [Mod,LastZxid,LastCommitZxid,ZabState]),
 		    loop(Server#server{
 			    recover_acks=dict:new(),
 			    mon_follow_refs=dict:new(),
@@ -532,7 +536,8 @@ looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=EP
 		{'EXIT',_}->
 		    ets:delete_all_objects(Que),
 		    gen_fsm:send_event(EPid,{re_elect,LastZxid,LastCommitZxid}),
-		    lager:notice("##leader down re-elect,zxid:~p,commit zxid:~p,change state~p to looking",[LastZxid,LastCommitZxid,ZabState]),
+		    lager:notice("Mod:~p,##leader down re-elect,zxid:~p,commit zxid:~p,change state~p to looking",
+				 [Mod,LastZxid,LastCommitZxid,ZabState]),
 		    loop(Server#server{
 			    recover_acks=dict:new(),
 			    mon_follow_refs=dict:new(),
@@ -574,7 +579,7 @@ leader_recover(#server{mod = _Mod, state = _State,debug=_Debug,quorum=Quorum,ele
 	    end,
 	    Z=dict:size(D1)+1,
 	    if Z>=Quorum ->
-		    lager:notice("##leader recover change state to leading##"),
+		    lager:notice("Mod:~p,##leader recover change state to leading##",[Server#server.mod]),
 		    %%change epoch for handle old leader restart
 		    Z1=zabe_util:change_leader_zxid(LastZxid),
 		    loop(Server#server{recover_acks=D1,mon_follow_refs=NRefs,last_zxid=Z1,last_commit_zxid=Z1},leading,ZabServerInfo);
@@ -632,7 +637,7 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 		[] when QueSize=:=0->
 		    M1={recover_ok,{Mod,node()}},
 		    send_zab_msg({Mod,Leader},M1,Server#server.logical_clock),
-		    lager:notice("##follow recover ok,state to followiing##"),
+		    lager:notice("Mod:~p,##follow recover ok,state to followiing##",[Mod]),
 		    loop(Server#server{last_zxid=Last,last_commit_zxid=Last},following,ZabServerInfo);
 		[] when QueSize>0-> %recover local
 		    
@@ -644,7 +649,7 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 							 Z1
 						  end,
 		    NewZxid=fold_all(Que,F,Last,ets:first(Que),LastZxid),
-		    lager:notice("##follow recover local ok,state to followiing##"),
+		    lager:notice("Mod:~p,##follow recover local ok,state to followiing##",[Mod]),
 		    loop(Server#server{last_zxid=NewZxid,last_commit_zxid=NewZxid},following,ZabServerInfo)    
 			;
 
@@ -666,7 +671,7 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 						  end,
 			    NewZxid=fold_all(Que,F,Last,Min,Last),
 			    %ets:delete_all_objects(Que),
-			    lager:notice("##follow recover ok,state to followiing##"),
+			    lager:notice("Mod:~p,##follow recover ok,state to followiing##",[Mod]),
 			    loop(Server#server{last_zxid=NewZxid,last_commit_zxid=NewZxid},following,ZabServerInfo)    
 				;
 			false ->
