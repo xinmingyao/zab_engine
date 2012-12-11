@@ -546,10 +546,20 @@ looking(#server{mod = Mod, state = State,debug=_Debug,quorum=Quorum,elect_pid=EP
 			 );
 		Ref->
 		    timer:sleep(50),%%follower and leader elect time diff,leader handle too,
+		    Last=case zabe_util:zxid_eq(LastZxid,LastCommitZxid) of
+			     true -> LastCommitZxid;
+			     false->{ok,{T,_}}=ProposalLogMod:fold(fun({_Key,P1},{_LastCommit,Count})->
+									   
+									   Mod:handle_commit(P1#p.transaction#t.value,
+											     P1#p.transaction#t.zxid,State,ZabServerInfo) ,
+									   {P1#p.transaction#t.zxid,Count}
+								   end,
+								   {LastCommitZxid,infinite},LastCommitZxid,BackEndOpts),
+				    T
+			 end,
 		    M1={truncate_req,{Mod,node()},LastZxid},
-		    
 		    send_zab_msg({Mod,Node},M1,V#vote.epoch),
-		    loop(Server#server{leader=Node,logical_clock=V#vote.epoch,role=?FOLLOWING,mon_leader_ref=Ref},follow_recover,ZabServerInfo) 
+		    loop(Server#server{leader=Node,logical_clock=V#vote.epoch,last_commit_zxid=Last,role=?FOLLOWING,mon_leader_ref=Ref},follow_recover,ZabServerInfo) 
 	    end;
 	 _ -> %flush msg
 	    loop(Server,ZabState,ZabServerInfo) 
