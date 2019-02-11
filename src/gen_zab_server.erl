@@ -665,7 +665,7 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 		[] when QueSize=:=0->
 		    M1={recover_ok,{Mod,node()}},
 		    send_zab_msg({Mod,Leader},M1,Server#server.logical_clock),
-		    lager:info("follow recover ok,state to followiing"),
+		    lager:info("follow recover ok,state to following"),
 		    loop(Server,following,ZabServerInfo);
 		[] when QueSize>0-> %recover local
 
@@ -677,7 +677,7 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 						  end,
 			   % NewZxid=fold_all(Que,F,Last),
 		    NewZxid=fold_all(Que,F,Last,ets:first(Que),LastZxid),
-		    lager:info("follow recover local ok,state to followiing"),
+		    lager:info("follow recover local ok,state to following"),
 		    loop(Server#server{last_zxid=NewZxid,last_commit_zxid=NewZxid},following,ZabServerInfo)    
 			;
 
@@ -703,7 +703,7 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 			   % NewZxid=fold_all(Que,F,Last),
 			    NewZxid=fold_all(Que,F,Last,Min,LastZxid),
 			    %ets:delete_all_objects(Que),
-			    lager:info("follow recover ok,state to followiing"),
+			    lager:info("follow recover ok,state to following"),
 			    loop(Server#server{last_zxid=NewZxid,last_commit_zxid=NewZxid},following,ZabServerInfo)    
 				;
 			false ->
