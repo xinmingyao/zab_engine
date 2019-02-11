@@ -36,7 +36,7 @@
 %-define(LEADER_STATE_RECORVER,2).
 %-define(LEADER_STATE_LEADING,3).
 %-define(LEADER_STATE_FOLLOWING,4).
-%-define(LEADER_STATE_OBSERVEING,5).
+%-define(LEADER_STATE_OBSERVING,5).
 
 
 -compile([{parse_transform, lager_transform}]).
