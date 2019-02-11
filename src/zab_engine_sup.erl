@@ -43,7 +43,7 @@ init([]) ->
 			       ProposalBackEnd,GcDb
 			       
     ]),    
-    % Run the proesses...
+    % Run the processes...
     {ok, {{one_for_one, 10, 10}, Processes}}.
 
 
