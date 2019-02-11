@@ -50,7 +50,7 @@
 
 %%--------------------------------------------------------------------
 %% @doc
-%% fast leader select for zab,algorithem from zookeeper,FasterLeaderElection.java
+%% fast leader select for zab,algorithm from zookeeper,FasterLeaderElection.java
 %% Creates a gen_fsm process which calls Module:init/1 to
 %% initialize. To ensure a synchronized start-up procedure, this
 %% function does not return until Module:init/1 has returned.
