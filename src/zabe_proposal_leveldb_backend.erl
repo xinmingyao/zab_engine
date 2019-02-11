@@ -95,7 +95,7 @@ init([Dir,_Opts]) ->
 		not_found->
 		    eleveldb:put(Ref,?INIT_MAX,?INIT_MAX,[]);
                 {error,Reason}->
-		    lager:info("erorr ~p",[Reason]);
+		    lager:info("error ~p",[Reason]);
 		_->
 		    ok
             end ,

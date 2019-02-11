@@ -86,7 +86,7 @@ e_2_s(S,L) when length(S)=:=L->
 e_2_s(S,L) when length(S) < L ->
     e_2_s([$0|S],L);
 e_2_s(_,_) ->
-    exit(epoch_errror).
+    exit(epoch_error).
 
 min(Pre)->
     Pre++epoch_to_string(0)++txn_to_string(0).
