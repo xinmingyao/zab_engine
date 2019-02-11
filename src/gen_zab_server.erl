@@ -453,7 +453,7 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 		    GcRep=#gc_reply{from=node(),last_commit_log_zxid=MyLastLogCommit,time=get_timestamp()},
 		    send_zab_msg({Mod,GcFrom},GcRep,Server#server.logical_clock),
 		    loop(Server,ZabState,ZabServerInfo);
-		%leader partiton 
+		%leader partition 
 		#msg{value={partition,less_quorum}}-> 
 		    ets:delete_all_objects(Que),
 		    
