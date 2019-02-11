@@ -50,7 +50,7 @@
 
 %%--------------------------------------------------------------------
 %% @doc
-%% fast leader select for zab,algorithem from zookeeper,FasterLeaderElection.java
+%% fast leader select for zab,algorithm from zookeeper,FasterLeaderElection.java
 %% Creates a gen_fsm process which calls Module:init/1 to
 %% initialize. To ensure a synchronized start-up procedure, this
 %% function does not return until Module:init/1 has returned.
@@ -197,12 +197,12 @@ looking1(Vote=#vote{from=_From,leader=Leader,state=PeerState,epoch=PeerEpoch}, S
 	    ets:insert(RecvVote,Vote),
 	    
 	    ReceiveAll=ets:info(RecvVote,size) == ordsets:size(Ensemble),
-	    HaveQuorm=is_have_quorm(State#state.quorum,Vote,RecvVote),
+	    HaveQuorum=is_have_quorum(State#state.quorum,Vote,RecvVote),
 	    if ReceiveAll ->
 		   
 		    notify_manager(ManagerName,ets:tab2list(RecvVote)),
 		    throw(finish);
-	       HaveQuorm->
+	       HaveQuorum->
 		    %wait after select
 		    TimeRef=gen_fsm:start_timer(?WAIT_TIMEOUT,wait_timeout),
 		    
@@ -218,9 +218,9 @@ looking1(Vote=#vote{from=_From,leader=Leader,state=PeerState,epoch=PeerEpoch}, S
 		    R2=State#state.recv_votes,
 		    ets:insert(R2,Vote),
 		    
-		    HaveQuorm=is_have_quorm(State#state.quorum,Vote,R2),
+		    HaveQuorum=is_have_quorum(State#state.quorum,Vote,R2),
 		    CheckLeader=check_leader(R2,Vote#vote.leader,node()),
-		    if Vote#vote.state ==?LEADING orelse (CheckLeader andalso HaveQuorm)->
+		    if Vote#vote.state ==?LEADING orelse (CheckLeader andalso HaveQuorum)->
 			    put(?PROPOSED,Vote#vote{from=node()}),
 			    
 			    notify_manager(ManagerName,ets:tab2list(State#state.recv_votes)),
@@ -232,9 +232,9 @@ looking1(Vote=#vote{from=_From,leader=Leader,state=PeerState,epoch=PeerEpoch}, S
 		    
 		    OutOf=State#state.outof_election,
 		    ets:insert(OutOf,Vote),
-		    HaveQuorm=is_have_quorm(State#state.quorum,Vote,OutOf),
+		    HaveQuorum=is_have_quorum(State#state.quorum,Vote,OutOf),
 		    CheckLeader=check_leader(OutOf,Vote#vote.leader,node()),
-		    if HaveQuorm andalso CheckLeader->
+		    if HaveQuorum andalso CheckLeader->
 			   % V1=P1#vote{epoch=PeerEpoch},
 			   % put(?PROPOSED,V1),
 			    put(?PROPOSED,Vote#vote{from=node()}),
@@ -335,7 +335,7 @@ following(_,State) ->
     %flush msg
     {next_state,following,State}.
 
-is_have_quorm(Q,Proposed,RecvVote)->
+is_have_quorum(Q,Proposed,RecvVote)->
     C1=ets:foldl(
       fun(Vote,Count)->
 		 Eq=is_eq(Vote,Proposed),

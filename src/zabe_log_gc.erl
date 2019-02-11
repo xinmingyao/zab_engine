@@ -146,7 +146,7 @@ handle_info(M=#gc_reply{from=From},State=#state{prefix=Prefix,nodes=Nodes,gc_rep
 	    % notify  proposal backend gc
 	    %
 	    %
-	    % PorposalBackEnd:gc(Prefix,Min,Last),
+	    % ProposalBackEnd:gc(Prefix,Min,Last),
 
 	    %log local
 	    mnesia:transaction(fun()->mnesia:write(Rec) end),

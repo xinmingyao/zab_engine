@@ -31,7 +31,7 @@ init([]) ->
     ProposalBackEnd = {proposal_backend,
 		    {zabe_proposal_leveldb_backend, start_link,
 		     [ProposalDir,[]]},
-		       permanent, 5000, worker, [propsal_back_end]},
+		       permanent, 5000, worker, [proposal_back_end]},
     GcDb = {log_gc_db,
 		    {zabe_log_gc_db, start_link,
 		     []},
@@ -43,7 +43,7 @@ init([]) ->
 			       ProposalBackEnd,GcDb
 			       
     ]),    
-    % Run the proesses...
+    % Run the processes...
     {ok, {{one_for_one, 10, 10}, Processes}}.
 
 

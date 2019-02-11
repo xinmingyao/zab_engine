@@ -33,10 +33,10 @@
 
 
 %-define(LEADER_STATE_LOOKING,1).
-%-define(LEADER_STATE_RECORVER,2).
+%-define(LEADER_STATE_RECOVER,2).
 %-define(LEADER_STATE_LEADING,3).
 %-define(LEADER_STATE_FOLLOWING,4).
-%-define(LEADER_STATE_OBSERVEING,5).
+%-define(LEADER_STATE_OBSERVING,5).
 
 
 -compile([{parse_transform, lager_transform}]).
@@ -453,7 +453,7 @@ loop(Server=#server{debug=Debug,elect_pid=EPid,last_zxid=LastZxid,
 		    GcRep=#gc_reply{from=node(),last_commit_log_zxid=MyLastLogCommit,time=get_timestamp()},
 		    send_zab_msg({Mod,GcFrom},GcRep,Server#server.logical_clock),
 		    loop(Server,ZabState,ZabServerInfo);
-		%leader partiton 
+		%leader partition 
 		#msg{value={partition,less_quorum}}-> 
 		    ets:delete_all_objects(Que),
 		    
@@ -665,7 +665,7 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 		[] when QueSize=:=0->
 		    M1={recover_ok,{Mod,node()}},
 		    send_zab_msg({Mod,Leader},M1,Server#server.logical_clock),
-		    lager:info("follow recover ok,state to followiing"),
+		    lager:info("follow recover ok,state to following"),
 		    loop(Server,following,ZabServerInfo);
 		[] when QueSize>0-> %recover local
 
@@ -677,7 +677,7 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 						  end,
 			   % NewZxid=fold_all(Que,F,Last),
 		    NewZxid=fold_all(Que,F,Last,ets:first(Que),LastZxid),
-		    lager:info("follow recover local ok,state to followiing"),
+		    lager:info("follow recover local ok,state to following"),
 		    loop(Server#server{last_zxid=NewZxid,last_commit_zxid=NewZxid},following,ZabServerInfo)    
 			;
 
@@ -703,7 +703,7 @@ follow_recover(#server{mod =Mod, state = State,quorum=_Quorum,leader=Leader,
 			   % NewZxid=fold_all(Que,F,Last),
 			    NewZxid=fold_all(Que,F,Last,Min,LastZxid),
 			    %ets:delete_all_objects(Que),
-			    lager:info("follow recover ok,state to followiing"),
+			    lager:info("follow recover ok,state to following"),
 			    loop(Server#server{last_zxid=NewZxid,last_commit_zxid=NewZxid},following,ZabServerInfo)    
 				;
 			false ->
